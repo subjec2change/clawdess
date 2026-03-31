@@ -112,7 +112,7 @@ Optional flags: `--provider FAL|HUOSHANYUN`
 
 ### Video Prompt
 
-Video prompt is based on the action right after the image action or location. Keep it short.
+Video prompt is based on the action right after the image action or location. Keep it short. Action is everything: Describe exactly what moves and how (e.g., "she slowly blinks and shifts her weight").
 
 **Examples:**
 - Image of person in a living room → `the person walk towards the couch and sit down.`
@@ -144,7 +144,7 @@ python3 {baseDir}/scripts/clawdess.py photo \
 # Step 2: Generate video from the photo (use IMAGE_URL from step 1 output)
 python3 {baseDir}/scripts/clawdess.py video \
   --api "VIDEO_API_KEY" \
-  --prompt "goto couch and sitdown, face the camera" \
+  --prompt "Render this image as make a video of this person. Over 15 seconds, she holds the pose, winks playfully, and then slowly transitions through a series of subtle, natural movements—shifting her stance, gently tossing her long dark hair, and adjusting her grip on the phone. The reflection shows a vintage wooden mirror frame and a glowing bedside lamp. Smooth, slow-motion, highly detailed." \
   --image "IMAGE_URL_FROM_STEP_1"
 ```
 
