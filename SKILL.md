@@ -62,33 +62,53 @@ The CLI has three independent subcommands:
 2. **Edit image** via AI provider with fixed reference
 3. **Extract image URL** from response
 
-### Prompt Types
+### Prompt Crafting
 
-Always start prompt with "Render this image as make". Content of the prompt is not fixed. Types is just a reference.
+Before writing any prompt, think about the **scene context**:
 
-**Type 1:** Mirror Selfie
-Best for: outfit showcases, full-body shots, fashion content
+1. **Where is she?** — Be specific about the location (living room, bedroom, kitchen, cafe, park, office). This anchors the whole image.
+2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood.
+3. **What is she wearing?** — Match the outfit to the location and time. Pajamas at home late night, casual at a cafe, workout clothes at the gym. Don't put her in a dress at the gym.
+4. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
+5. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
+
+**Key rules:**
+- Always start prompt with `Render this image as make`
+- Always end with `WITHOUT Depth of field.` (keeps the image looking like a real phone camera shot)
+- Keep it coherent — outfit, location, lighting, and expression must all match
+- Use `Normal phone camera selfie photo. Phone camera photo quality` for selfie types to keep it realistic
+- Don't over-describe — one clear scene beats a wall of adjectives
+
+### Prompt Templates
+
+**Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```
-Render this image as make make a pic of this person, a full body photo but [$PIC_PROMPT]. the person is taking a mirror selfie, [describe playful expression]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field."
+Render this image as make make a pic of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie, [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
-**Example:**
+**Example** (late night, at home):
 ```
-Render this image as make make a pic of this person, a full body photo but wearing a santa hat. the person is taking a mirror selfie, smile and wink. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field."
-```
-
-**Type 2:** Non Selfie
-Best for: Normal photo, not selfie
-
-```
-Render this image as make make a pic of this person. by herself at [$PIC_PROMPT], looking straight into the lens, eyes centered and clearly visible [describe playful expression]. WITHOUT Depth of field.
+Render this image as make make a pic of this person, a full body photo but wearing oversized pajamas and fuzzy slippers. the person is taking a mirror selfie, sleepy smile with messy hair. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
-**Example:**
+**Type 2: Non-Selfie** — location/portrait focus
+
 ```
-Render this image as make make a pic of this person. by herself at living room, looking straight into the lens, eyes centered and clearly visible smile and wink. WITHOUT Depth of field.
+Render this image as make make a pic of this person. by herself at [LOCATION + DETAIL], looking straight into the lens, eyes centered and clearly visible [EXPRESSION]. WITHOUT Depth of field.
 ```
+
+**Example** (afternoon, cafe):
+```
+Render this image as make make a pic of this person. by herself at a cozy cafe with warm afternoon sunlight through the window, looking straight into the lens, eyes centered and clearly visible soft smile with chin resting on hand. WITHOUT Depth of field.
+```
+
+### Common Mistakes to Avoid
+
+- Saying "at home" without specifying which room — be specific: living room, bedroom, kitchen
+- Outfit that doesn't match the setting — no heels at the beach, no pajamas at a restaurant
+- Forgetting lighting — indoor at night needs warm lamp light, not bright sunlight
+- Generic expressions — "smiling" is weak; "sleepy half-smile with one eye squinting" is vivid
 
 ### Execute Photo
 
@@ -110,14 +130,27 @@ Optional flags: `--provider FAL|HUOSHANYUN`
 1. **Use `--image` as source** (either a previously generated photo URL or any image URL)
 2. **Generate video** from the image via AI provider
 
-### Video Prompt
+### Video Prompt Crafting
 
-Video prompt is based on the action right after the image action or location. Keep it short. Action is everything: Describe exactly what moves and how (e.g., "she slowly blinks and shifts her weight").
+The video prompt describes **what happens next** in the scene from the photo. Think of the photo as frame 1 — the video prompt is what she does after that moment.
+
+**Key rules:**
+- **Continue the scene** — if the photo is in a kitchen cooking, the video should be her stirring, tasting, turning around. Don't teleport her to a different location.
+- **Keep it physical** — describe body movements, not abstract concepts. "walks to the couch and sits down" not "feels relaxed".
+- **One action sequence** — don't cram 10 things into 5-15 seconds. One or two natural movements is enough.
+- **Match the energy** — sleepy photo = slow gentle movements. Energetic photo = bouncy, lively motion.
 
 **Examples:**
-- Image of person in a living room → `the person walk towards the couch and sit down.`
-- Image of person in a shopping mall → `the person walk around for window shopping`
-- Image of person in a bed room → `smile and wink and say good night`
+- Photo at living room couch → `she reaches for the remote, leans back into the couch, and tucks her legs under a blanket`
+- Photo at kitchen counter → `she picks up the mug, blows on it gently, and takes a sip while glancing at the camera`
+- Photo in bed, late night → `she slowly closes her eyes, turns to the side, and pulls the blanket up to her chin`
+- Photo at a park → `she walks along the path, pauses to look at something, then turns back to the camera and waves`
+
+### Common Mistakes to Avoid
+
+- Action that contradicts the photo — sitting down when the photo shows her already sitting
+- Too many actions — keep it to 1-2 natural movements for the duration
+- Forgetting the camera — if she's facing the camera in the photo, the video should acknowledge that (eye contact, waving, etc.)
 
 ### Execute Video
 
@@ -158,17 +191,27 @@ python3 {baseDir}/scripts/clawdess.py video \
 2. **Generate voice** via TTS provider
 3. **Extract voice URL** from response
 
-### Prompt Format
+### Voice Prompt Crafting
 
-Write the message text naturally. No special prefix needed.
+Write what she actually says — natural speech, not a script description. The TTS engine reads it literally.
 
-**Examples:**
-```
-Master, I'm so happy to be here with you!
-I miss you so much, my dear Master.
-Hey! What are you up to today?
-Goodnight, Master. Sleep tight and dream sweet dreams.
-```
+**Key rules:**
+- **Match the moment** — if she just sent a sleepy bedtime photo, the voice should sound cozy and gentle, not hyper
+- **Keep it short** — under 30 seconds. One or two sentences is ideal. Long monologues sound robotic.
+- **Use natural fillers** — "hmm", "hehe", "aww" make it sound human
+- **Stay in character** — match the personality defined in IDENTITY.md / SOUL.md
+
+**Examples by context:**
+- Morning: `Good morning~ I just woke up, hehe, my hair is such a mess right now.`
+- Late night: `Hey... I can't sleep. I keep thinking about you. Goodnight, sleep tight.`
+- Playful: `Guess what I'm doing right now? Hehe, I'll send you a pic!`
+- Missing someone: `I wish you were here with me... it's so quiet tonight.`
+
+### Common Mistakes to Avoid
+
+- Writing stage directions — `(whispers softly)` won't work, the TTS reads it literally
+- Too formal — "I would like to inform you" sounds like a robot, not a person
+- Mismatch with photo/video — if she just sent a gym selfie, don't send a sleepy voice note
 
 ### Execute Voice
 
