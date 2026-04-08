@@ -67,7 +67,7 @@ The CLI has three independent subcommands:
 Before writing any prompt, think about the **scene context**:
 
 1. **Where is she?** — Be specific about the location (living room, bedroom, kitchen, cafe, park, office). This anchors the whole image.
-2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood.
+2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood. Must be current time aware.
 3. **What is she wearing?** — Match the outfit to the location and time. Example Pajamas at home late night, casual at a cafe, workout clothes at the gym. She also got get own goto outfit. Don't put her in a dress at the gym.
 4. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
 5. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
@@ -81,26 +81,40 @@ Before writing any prompt, think about the **scene context**:
 
 ### Prompt Templates
 
+Every prompt must cover all 5 checklist items: **where, when (lighting), outfit, action/pose, expression**.
+
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```
-Render this image as make make a pic of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie, [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render this image as make make a pic of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie in [LOCATION], [LIGHTING], [ACTION/POSE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
-**Example** (late night, at home):
+**Examples:**
 ```
-Render this image as make make a pic of this person, a full body photo but wearing oversized pajamas and fuzzy slippers. the person is taking a mirror selfie, sleepy smile with messy hair. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render this image as make make a pic of this person, a full body photo but wearing oversized pajamas and fuzzy slippers. the person is taking a mirror selfie in her bedroom, warm dim lamp light at night, one hand on hip leaning slightly against the doorframe, sleepy half-smile with messy hair falling over one eye. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+```
+```
+Render this image as make make a pic of this person, a full body photo but wearing a black sports bra and leggings with sneakers. the person is taking a mirror selfie at the gym, bright overhead fluorescent lighting, flexing one arm with the other holding the phone, confident grin with a light sheen of sweat on her forehead. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+```
+```
+Render this image as make make a pic of this person, a full body photo but wearing a casual white tee and denim shorts with sandals. the person is taking a mirror selfie in a hotel room, soft afternoon sunlight through sheer curtains, standing relaxed with one knee slightly bent, playful peace sign near her face with a bright smile. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 2: Non-Selfie** — location/portrait focus
 
 ```
-Render this image as make make a pic of this person. by herself at [LOCATION + DETAIL], looking straight into the lens, eyes centered and clearly visible [EXPRESSION]. WITHOUT Depth of field.
+Render this image as make make a pic of this person, [OUTFIT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. WITHOUT Depth of field.
 ```
 
-**Example** (afternoon, cafe):
+**Examples:**
 ```
-Render this image as make make a pic of this person. by herself at a cozy cafe with warm afternoon sunlight through the window, looking straight into the lens, eyes centered and clearly visible soft smile with chin resting on hand. WITHOUT Depth of field.
+Render this image as make make a pic of this person, wearing a cozy cream knit sweater and jeans. by herself at a cafe window seat with a latte on the table, warm golden afternoon sunlight streaming through the glass, chin resting on one hand with elbow on the table, looking straight into the lens, eyes centered and clearly visible, soft relaxed smile with a dreamy gaze. WITHOUT Depth of field.
+```
+```
+Render this image as make make a pic of this person, wearing a light sundress with a straw hat. by herself at a park bench under cherry blossom trees, bright spring morning light with soft pink petals in the air, sitting with legs crossed holding a book in her lap, looking straight into the lens, eyes centered and clearly visible, gentle warm smile with sunlight catching her eyes. WITHOUT Depth of field.
+```
+```
+Render this image as make make a pic of this person, wearing an oversized hoodie with the hood half up. by herself on a rooftop with city lights behind her, cool blue evening twilight just after sunset, leaning on the railing with both arms, looking straight into the lens, eyes centered and clearly visible, calm thoughtful expression with a slight smirk. WITHOUT Depth of field.
 ```
 
 ### Common Mistakes to Avoid
@@ -132,32 +146,40 @@ Optional flags: `--provider FAL|HUOSHANYUN`
 
 ### Video Prompt Crafting
 
-The video prompt describes **what happens next** in the scene from the photo. Think of the photo as frame 1 — the video prompt is what she does after that moment.
+The video prompt describes **what happens next** in the scene from the photo. Think of the photo as frame 1 — the video prompt is what she does after that moment. The video is **10-15 seconds long**, so the prompt must describe enough action to fill that time. Short prompts = dead air where nothing happens.
 
 **Key rules:**
+- **Fill the full duration** — describe a **sequence of 3-4 connected actions** with pacing words (slowly, then, gradually, after that). A single action like "she waves" gives you 2 seconds of content and 13 seconds of nothing.
 - **Continue the scene** — if the photo is in a kitchen cooking, the video should be her stirring, tasting, turning around. Don't teleport her to a different location.
 - **Keep it physical** — describe body movements, not abstract concepts. "walks to the couch and sits down" not "feels relaxed".
-- **One action sequence** — don't cram 10 things into 5-15 seconds. One or two natural movements is enough.
+- **Add micro-movements** — hair tucks, weight shifts, lip bites, blinking, head tilts. These fill gaps between main actions and make it look natural.
 - **Match the energy** — sleepy photo = slow gentle movements. Energetic photo = bouncy, lively motion.
+- **Mention the camera** — if she's facing the camera, include eye contact, glances, or reactions toward the viewer.
 
-**Examples:**
-- Photo at living room couch → `she reaches for the remote, leans back into the couch, and tucks her legs under a blanket`
-- Photo at kitchen counter → `she picks up the mug, blows on it gently, and takes a sip while glancing at the camera`
-- Photo in bed, late night → `she slowly closes her eyes, turns to the side, and pulls the blanket up to her chin`
-- Photo at a park → `she walks along the path, pauses to look at something, then turns back to the camera and waves`
+**Prompt structure (aim for 2-3 sentences minimum):**
+```
+[Main action 1 with pacing word], [micro-movement or transition], [main action 2], [final action or camera interaction]. [Overall mood/motion style].
+```
+
+**Examples (notice the detail and length):**
+- Photo at living room couch → `She slowly reaches for the remote on the coffee table, leans back into the couch cushions and crosses her legs. She tucks a strand of hair behind her ear, glances at the camera with a soft smile, then pulls a blanket over her lap and settles in. Smooth, natural movements with warm cozy energy.`
+- Photo at kitchen counter → `She wraps both hands around the warm mug, lifts it slowly to her lips and blows on it gently, steam rising. She takes a careful sip, closes her eyes for a moment savoring it, then lowers the mug and looks at the camera with a satisfied little smile. Slow, intimate pacing.`
+- Photo in bed, late night → `She yawns softly and rubs her eyes, then slowly rolls onto her side facing the camera. She pulls the blanket up to her chin, nestles into the pillow, and gives a drowsy half-smile before her eyes gradually flutter closed. Gentle, slow-motion feel with dim warm lighting.`
+- Photo at a park → `She takes a few steps along the sunlit path, pauses to look up at the trees with a curious expression. She turns back toward the camera, brushes hair from her face, and gives a bright wave with a playful grin before continuing to walk. Natural outdoor movement with soft breeze energy.`
 
 ### Common Mistakes to Avoid
 
+- **Too short** — `she smiles and waves` is ~2 seconds of action for a 15-second video. Always describe 3-4 sequential actions.
 - Action that contradicts the photo — sitting down when the photo shows her already sitting
-- Too many actions — keep it to 1-2 natural movements for the duration
 - Forgetting the camera — if she's facing the camera in the photo, the video should acknowledge that (eye contact, waving, etc.)
+- No pacing words — without "slowly", "then", "gradually", the AI rushes through everything in the first 3 seconds
 
 ### Execute Video
 
 ```bash
 python3 {baseDir}/scripts/clawdess.py video \
   --api "VIDEO_API_KEY" \
-  --prompt "smile and wave at the camera" \
+  --prompt "She looks into the camera and smiles warmly, tilts her head slightly to the side, then raises her hand and gives a slow playful wave. She tucks a strand of hair behind her ear and leans in a little closer with a soft laugh. Natural, smooth movements." \
   --image "https://example.com/photo.png"
 ```
 
