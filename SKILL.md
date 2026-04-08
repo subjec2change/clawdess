@@ -68,7 +68,7 @@ Before writing any prompt, think about the **scene context**:
 
 1. **Where is she?** — Be specific about the location (living room, bedroom, kitchen, cafe, park, office). This anchors the whole image.
 2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood.
-3. **What is she wearing?** — Match the outfit to the location and time. Pajamas at home late night, casual at a cafe, workout clothes at the gym. Don't put her in a dress at the gym.
+3. **What is she wearing?** — Match the outfit to the location and time. Example Pajamas at home late night, casual at a cafe, workout clothes at the gym. She also got get own goto outfit. Don't put her in a dress at the gym.
 4. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
 5. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
 
