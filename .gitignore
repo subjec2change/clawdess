@@ -3,3 +3,6 @@
 .claude/
 tya*
 rhub*
+
+# agents
+agents/p_*
