@@ -6,7 +6,7 @@ metadata: {"author": "xwings", "openclaw": { "requires": { env: ["CLAWDESS_PHOTO
 
 ## Reference Image
 
-The reference image URL should be defined in `IDENTITY.md` or `SOUL.md`
+The reference image URL should be defined in `IDENTITY.md`
 
 ## When to Use
 
