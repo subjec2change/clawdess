@@ -10,7 +10,7 @@ from common import MEDIA_CACHE
 
 # Default voice — "Rachel" (warm female). Change voice_id for others.
 # Browse voices: https://api.elevenlabs.io/v1/voices
-DEFAULT_VOICE_ID = "BqljjWyTnrioXPCNkCd4"
+DEFAULT_VOICE_ID = "El018FmI047NtSsCfyrY"
 
 
 def generate(api_key, text):
