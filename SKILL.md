@@ -50,7 +50,7 @@ The CLI has three independent subcommands:
 |------|-------------------|---------|
 | Photo | FAL, HUOSHANYUN | FAL |
 | Video | FAL, XAI  | FAL |
-| Voice | ALIYUN, ZAI | ALIYUN |
+| Voice | ALIYUN, ZAI, ELEVENLABS | ALIYUN |
 
 ---
 
@@ -248,7 +248,7 @@ python3 {baseDir}/scripts/clawdess.py voice \
   --prompt "Master, I'm sending you a voice message!"
 ```
 
-Optional flags: `--api`, `--provider ALIYUN|ZAI`
+Optional flags: `--api`, `--provider ALIYUN|ZAI|ELEVENLABS`
 
 ---
 
