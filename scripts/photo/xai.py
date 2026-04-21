@@ -17,7 +17,7 @@ def generate(api_key, prompt, image_url=None):
         "aspect_ratio": "9:16",
         "image": {
             "url": image_url,
-            "type": "image_url"
+            "type": "image_url",
         }        
     }
 
@@ -37,3 +37,6 @@ def generate(api_key, prompt, image_url=None):
         return None
 
     return results[0].get("url")
+
+
+
