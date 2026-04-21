@@ -16,8 +16,8 @@ def generate(api_key, prompt, image_url=None):
         "prompt": prompt,
         "aspect_ratio": "9:16",
         "image": {
-        "url": "image_url,
-        "type": "image_url"
+            "url": image_url,
+            "type": "image_url"
         }        
     }
 
