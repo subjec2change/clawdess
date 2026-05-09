@@ -68,7 +68,7 @@ Before writing any prompt, think about the **scene context**:
 
 - Use realistic phone-photo or phone-video language.
 - Keep posture, framing, lighting, and styling believable for the scene.
-- Match hairstyle, outfit, props, and activity to the location and time.
+- Match outfit, props, and activity to the location and time.
 - Avoid stock-photo, over-produced, or overly staged compositions unless the user explicitly asks for that style.
 - Preserve the workspace persona's identity, reference image, and stable visual details from `IDENTITY.md`.
 
@@ -78,7 +78,7 @@ Before sending a media prompt, make sure it includes:
 
 - Correct Clawdess routing or subcommand for photo, video, or voice.
 - Reference image and identity lock from the workspace.
-- Scene, outfit or styling, hairstyle, pose or action.
+- Scene, outfit or styling, pose or action.
 - Expression, lighting, framing, and mood.
 - Body or figure details from `IDENTITY.md` when relevant to the request or framing.
 - Accessories from `IDENTITY.md` when scene-appropriate.
