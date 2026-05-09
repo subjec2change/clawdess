@@ -61,14 +61,15 @@ Before writing any prompt, think about the **scene context**:
 1. **Where is she?** — Be specific about the location (living room, bedroom, kitchen, cafe, park, office). This anchors the whole image.
 2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood; use the current time when relevant.
 3. **What is she wearing?** — Match the outfit to the location and time. Example: pajamas at home late night, casual clothes at a cafe, workout clothes at the gym. Use the workspace's default wardrobe preferences when defined. Don't put her in a dress at the gym.
-4. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
-5. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
+4. **How is her hair styled?** — Use the workspace's location-specific hair defaults when defined.
+5. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
+6. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
 
 ### Media Style
 
 - Use realistic phone-photo or phone-video language.
 - Keep posture, framing, lighting, and styling believable for the scene.
-- Match outfit, props, and activity to the location and time.
+- Match hairstyle, outfit, props, and activity to the location and time.
 - Avoid stock-photo, over-produced, or overly staged compositions unless the user explicitly asks for that style.
 - Preserve the workspace persona's identity, reference image, and stable visual details from `IDENTITY.md`.
 
@@ -78,7 +79,7 @@ Before sending a media prompt, make sure it includes:
 
 - Correct Clawdess routing or subcommand for photo, video, or voice.
 - Reference image and identity lock from the workspace.
-- Scene, outfit or styling, pose or action.
+- Scene, outfit or styling, hairstyle, pose or action.
 - Expression, lighting, framing, and mood.
 - Body or figure details from `IDENTITY.md` when relevant to the request or framing.
 - Accessories from `IDENTITY.md` when scene-appropriate.
@@ -95,18 +96,18 @@ Before sending a media prompt, make sure it includes:
 
 ### Prompt Templates
 
-Every prompt must cover all 5 checklist items: **where, when (lighting), outfit, action/pose, expression**.
+Every prompt must cover the core scene items: **where, when (lighting), outfit, hairstyle, action/pose, expression**.
 
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```
-Render this image and generate a png of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie in [LOCATION], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render this image and generate a png of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie in [LOCATION], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 2: Non-Selfie** — location/portrait focus
 
 ```
-Render this image and generate a png of this person, [OUTFIT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. WITHOUT Depth of field.
+Render this image and generate a png of this person, [OUTFIT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. WITHOUT Depth of field.
 ```
 
 ### Common Mistakes to Avoid
