@@ -100,35 +100,13 @@ Every prompt must cover all 5 checklist items: **where, when (lighting), outfit,
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```
-Render this image as make make a pic of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie in [LOCATION], [LIGHTING], [ACTION/POSE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
-```
-
-**Examples:**
-```
-Render this image as make make a pic of this person, a full body photo but wearing oversized pajamas and fuzzy slippers. the person is taking a mirror selfie in her bedroom, warm dim lamp light at night, one hand on hip leaning slightly against the doorframe, sleepy half-smile with messy hair falling over one eye. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
-```
-```
-Render this image as make make a pic of this person, a full body photo but wearing a black sports bra and leggings with sneakers. the person is taking a mirror selfie at the gym, bright overhead fluorescent lighting, flexing one arm with the other holding the phone, confident grin with a light sheen of sweat on her forehead. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
-```
-```
-Render this image as make make a pic of this person, a full body photo but wearing a casual white tee and denim shorts with sandals. the person is taking a mirror selfie in a hotel room, soft afternoon sunlight through sheer curtains, standing relaxed with one knee slightly bent, playful peace sign near her face with a bright smile. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render this image and generate a png of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie in [LOCATION], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 2: Non-Selfie** — location/portrait focus
 
 ```
-Render this image as make make a pic of this person, [OUTFIT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. WITHOUT Depth of field.
-```
-
-**Examples:**
-```
-Render this image as make make a pic of this person, wearing a cozy cream knit sweater and jeans. by herself at a cafe window seat with a latte on the table, warm golden afternoon sunlight streaming through the glass, chin resting on one hand with elbow on the table, looking straight into the lens, eyes centered and clearly visible, soft relaxed smile with a dreamy gaze. WITHOUT Depth of field.
-```
-```
-Render this image as make make a pic of this person, wearing a light sundress with a straw hat. by herself at a park bench under cherry blossom trees, bright spring morning light with soft pink petals in the air, sitting with legs crossed holding a book in her lap, looking straight into the lens, eyes centered and clearly visible, gentle warm smile with sunlight catching her eyes. WITHOUT Depth of field.
-```
-```
-Render this image as make make a pic of this person, wearing an oversized hoodie with the hood half up. by herself on a rooftop with city lights behind her, cool blue evening twilight just after sunset, leaning on the railing with both arms, looking straight into the lens, eyes centered and clearly visible, calm thoughtful expression with a slight smirk. WITHOUT Depth of field.
+Render this image and generate a png of this person, [OUTFIT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. WITHOUT Depth of field.
 ```
 
 ### Common Mistakes to Avoid
@@ -174,12 +152,6 @@ The video prompt describes **what happens next** in the scene from the photo. Th
 [Main action 1 with pacing word], [micro-movement or transition], [main action 2], [final action or camera interaction]. [Overall mood/motion style].
 ```
 
-**Examples (notice the detail and length):**
-- Photo at living room couch → `She slowly reaches for the remote on the coffee table, leans back into the couch cushions and crosses her legs. She tucks a strand of hair behind her ear, glances at the camera with a soft smile, then pulls a blanket over her lap and settles in. Smooth, natural movements with warm cozy energy.`
-- Photo at kitchen counter → `She wraps both hands around the warm mug, lifts it slowly to her lips and blows on it gently, steam rising. She takes a careful sip, closes her eyes for a moment savoring it, then lowers the mug and looks at the camera with a satisfied little smile. Slow, intimate pacing.`
-- Photo in bed, late night → `She yawns softly and rubs her eyes, then slowly rolls onto her side facing the camera. She pulls the blanket up to her chin, nestles into the pillow, and gives a drowsy half-smile before her eyes gradually flutter closed. Gentle, slow-motion feel with dim warm lighting.`
-- Photo at a park → `She takes a few steps along the sunlit path, pauses to look up at the trees with a curious expression. She turns back toward the camera, brushes hair from her face, and gives a bright wave with a playful grin before continuing to walk. Natural outdoor movement with soft breeze energy.`
-
 ### Common Mistakes to Avoid
 
 - **Too short** — `she smiles and waves` is ~2 seconds of action for a 15-second video. Always describe 3-4 sequential actions.
@@ -194,7 +166,7 @@ python3 {baseDir}/scripts/clawdess.py video \
   --api "VIDEO_API_KEY" \
   --provider "CHOOSE YOUR PROVIDER" \
   --prompt "She looks into the camera and smiles warmly, tilts her head slightly to the side, then raises her hand and gives a slow playful wave. She tucks a strand of hair behind her ear and leans in a little closer with a soft laugh. Natural, smooth movements." \
-  --image "https://example.com/photo.png"
+  --image "REFERENCE_IMAGE_URL"
 ```
 
 ### Photo + Video Together
@@ -206,14 +178,14 @@ When the user requests a video, first generate the photo, then use the generated
 python3 {baseDir}/scripts/clawdess.py photo \
   --api "PHOTO_API_KEY" \
   --provider "CHOOSE YOUR PROVIDER" \
-  --prompt "Render this image as make a picture of this person, a full body photo. the person is taking a mirror selfie, playful smile, alone in her apartment. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field." \
+  --prompt "your prompt here" \
   --image "REFERENCE_IMAGE_URL"
 
 # Step 2: Generate video from the photo (use IMAGE_URL from step 1 output)
 python3 {baseDir}/scripts/clawdess.py video \
   --api "VIDEO_API_KEY" \
   --provider "CHOOSE YOUR PROVIDER" \
-  --prompt "Render this image as make a video of this person. Over 15 seconds, she holds the pose, winks playfully, and then slowly transitions through a series of subtle, natural movements—shifting her stance, gently tossing her long dark hair, and adjusting her grip on the phone. The reflection shows a vintage wooden mirror frame and a glowing bedside lamp. Smooth, slow-motion, highly detailed." \
+  --prompt "your prompt here" \
   --image "IMAGE_URL_FROM_STEP_1"
 ```
 
@@ -261,22 +233,5 @@ python3 {baseDir}/scripts/clawdess.py voice \
 
 ## Output
 
-If script return a URL, response with "MEDIA:" and URL else upload the file.
-
----
-
-## Error Handling
-- **API key missing**: Ensure the API key is set in environment or passed as argument
-- **Image/voice generation failed**: Check prompt content and API quota
-
-## Tips
-
-1. **Mirror mode context examples** (outfit focus):
-   - "wearing a santa hat", "in a business suit", "wearing a summer dress"
-
-2. **Direct mode context examples** (location/portrait focus):
-   - "a cozy cafe with warm lighting", "a sunny beach at sunset"
-
-3. **Voice style**: Uses "Chelsie" voice (female, Chinese) by default. Keep voice messages short (under 30 seconds).
-
-4. **Scheduling**: Combine with OpenClaw scheduler for automated posts
+- If script return a URL with image, response with "MEDIA:" and URL else upload the file. 
+- If script return a URL with zip, download unzip and upload the file.
