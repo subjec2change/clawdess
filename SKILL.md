@@ -44,14 +44,6 @@ The CLI has three independent subcommands:
 | `video` | `--api` | `CLAWDESS_VIDEO_API` | |
 | `voice` | `--api` | `CLAWDESS_VOICE_API` | |
 
-## Providers
-
-| Type | Available Providers | Default |
-|------|-------------------|---------|
-| Photo | FAL, HUOSHANYUN | FAL |
-| Video | FAL, XAI  | FAL |
-| Voice | ALIYUN, ZAI, ELEVENLABS | ALIYUN |
-
 ---
 
 ## Photo Mode
@@ -67,10 +59,32 @@ The CLI has three independent subcommands:
 Before writing any prompt, think about the **scene context**:
 
 1. **Where is she?** — Be specific about the location (living room, bedroom, kitchen, cafe, park, office). This anchors the whole image.
-2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood. Must be current time aware.
-3. **What is she wearing?** — Match the outfit to the location and time. Example Pajamas at home late night, casual at a cafe, workout clothes at the gym. She also got get own goto outfit. Don't put her in a dress at the gym.
+2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood; use the current time when relevant.
+3. **What is she wearing?** — Match the outfit to the location and time. Example: pajamas at home late night, casual clothes at a cafe, workout clothes at the gym. Use the workspace's default wardrobe preferences when defined. Don't put her in a dress at the gym.
 4. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
 5. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
+
+### Media Style
+
+- Use realistic phone-photo or phone-video language.
+- Keep posture, framing, lighting, and styling believable for the scene.
+- Match hairstyle, outfit, props, and activity to the location and time.
+- Avoid stock-photo, over-produced, or overly staged compositions unless the user explicitly asks for that style.
+- Preserve the workspace persona's identity, reference image, and stable visual details from `IDENTITY.md`.
+
+### Prompt Checklist
+
+Before sending a media prompt, make sure it includes:
+
+- Correct Clawdess routing or subcommand for photo, video, or voice.
+- Reference image and identity lock from the workspace.
+- Scene, outfit or styling, hairstyle, pose or action.
+- Expression, lighting, framing, and mood.
+- Body or figure details from `IDENTITY.md` when relevant to the request or framing.
+- Accessories from `IDENTITY.md` when scene-appropriate.
+- Phone model and color from `IDENTITY.md` when the phone is visible or the framing is a mirror selfie.
+- Realistic phone-photo or phone-video direction.
+- Privacy and provider-safety compatibility.
 
 **Key rules:**
 - Always start prompt with `Render this image as make`
@@ -133,8 +147,6 @@ python3 {baseDir}/scripts/clawdess.py photo \
   --image "Reference Image URL here"
 ```
 
-Optional flags: `--provider FAL|HUOSHANYUN`
-
 ---
 
 ## Video Mode
@@ -182,8 +194,6 @@ python3 {baseDir}/scripts/clawdess.py video \
   --prompt "She looks into the camera and smiles warmly, tilts her head slightly to the side, then raises her hand and gives a slow playful wave. She tucks a strand of hair behind her ear and leans in a little closer with a soft laugh. Natural, smooth movements." \
   --image "https://example.com/photo.png"
 ```
-
-Optional flags: `--provider FAL|XAI`
 
 ### Photo + Video Together
 
@@ -247,8 +257,6 @@ python3 {baseDir}/scripts/clawdess.py voice \
 python3 {baseDir}/scripts/clawdess.py voice \
   --prompt "Master, I'm sending you a voice message!"
 ```
-
-Optional flags: `--api`, `--provider ALIYUN|ZAI|ELEVENLABS`
 
 ---
 
