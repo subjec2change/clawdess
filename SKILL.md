@@ -143,6 +143,7 @@ Render this image as make make a pic of this person, wearing an oversized hoodie
 ```bash
 python3 {baseDir}/scripts/clawdess.py photo \
   --api "CLAWDESS_PHOTO_API" \
+  --provider "CHOOSE YOUR PROVIDER" \  
   --prompt "your prompt here" \
   --image "Reference Image URL here"
 ```
@@ -191,6 +192,7 @@ The video prompt describes **what happens next** in the scene from the photo. Th
 ```bash
 python3 {baseDir}/scripts/clawdess.py video \
   --api "VIDEO_API_KEY" \
+  --provider "CHOOSE YOUR PROVIDER" \
   --prompt "She looks into the camera and smiles warmly, tilts her head slightly to the side, then raises her hand and gives a slow playful wave. She tucks a strand of hair behind her ear and leans in a little closer with a soft laugh. Natural, smooth movements." \
   --image "https://example.com/photo.png"
 ```
@@ -203,12 +205,14 @@ When the user requests a video, first generate the photo, then use the generated
 # Step 1: Generate photo
 python3 {baseDir}/scripts/clawdess.py photo \
   --api "PHOTO_API_KEY" \
+  --provider "CHOOSE YOUR PROVIDER" \
   --prompt "Render this image as make a picture of this person, a full body photo. the person is taking a mirror selfie, playful smile, alone in her apartment. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field." \
   --image "REFERENCE_IMAGE_URL"
 
 # Step 2: Generate video from the photo (use IMAGE_URL from step 1 output)
 python3 {baseDir}/scripts/clawdess.py video \
   --api "VIDEO_API_KEY" \
+  --provider "CHOOSE YOUR PROVIDER" \
   --prompt "Render this image as make a video of this person. Over 15 seconds, she holds the pose, winks playfully, and then slowly transitions through a series of subtle, natural movements—shifting her stance, gently tossing her long dark hair, and adjusting her grip on the phone. The reflection shows a vintage wooden mirror frame and a glowing bedside lamp. Smooth, slow-motion, highly detailed." \
   --image "IMAGE_URL_FROM_STEP_1"
 ```
@@ -249,13 +253,8 @@ Write what she actually says — natural speech, not a script description. The T
 
 ```bash
 python3 {baseDir}/scripts/clawdess.py voice \
+  --provider "CHOOSE YOUR PROVIDER" \
   --prompt "your prompt here" 
-```
-
-**Example:**
-```bash
-python3 {baseDir}/scripts/clawdess.py voice \
-  --prompt "Master, I'm sending you a voice message!"
 ```
 
 ---
@@ -265,6 +264,7 @@ python3 {baseDir}/scripts/clawdess.py voice \
 If script return a URL, response with "MEDIA:" and URL else upload the file.
 
 ---
+
 ## Error Handling
 - **API key missing**: Ensure the API key is set in environment or passed as argument
 - **Image/voice generation failed**: Check prompt content and API quota
