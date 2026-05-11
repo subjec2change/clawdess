@@ -234,5 +234,19 @@ python3 {baseDir}/scripts/clawdess.py voice \
 
 ## Output
 
-- If script return a URL with image, response with "MEDIA:" and URL else upload the file. 
-- If script return a URL with zip, download unzip and upload the file.
+- Always upload the final result to the **last chat client** the user was on (the one this conversation is happening in).
+- If script returns a URL with image, respond with "MEDIA:" and URL — else upload the file.
+- If script returns a URL with zip, download, unzip, and upload the file.
+
+### Image Size Limit
+
+- If the image file is **larger than 8MB**, resize it down to **approximately 2MB** before uploading.
+- Use **ImageMagick** for resizing. Preserve aspect ratio.
+
+```bash
+# Resize an image to approximately 2MB (adjust quality/resolution as needed)
+magick input.png -resize 1920x1920\> -quality 85 output.jpg
+```
+
+- For PNG inputs that are still too large after a resize, convert to JPEG (`-quality 85`) — it's the fastest way to hit the ~2MB target.
+- Check the file size after resizing (`stat -c%s output.jpg`). If still over 2MB, drop quality to 75 or resize smaller (e.g. `1280x1280\>`).
