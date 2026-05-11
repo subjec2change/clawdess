@@ -101,7 +101,7 @@ Every prompt must cover the core scene items: **where, when (lighting), outfit, 
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```
-Render this image and generate a png of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie in [LOCATION], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render this image and generate a png of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 2: Non-Selfie** — location/portrait focus
