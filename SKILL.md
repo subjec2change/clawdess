@@ -112,44 +112,95 @@ Render image of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COL
 
 ### Action/Pose Library
 
-**Never use "standing still" or "posing for the camera"** — those produce stiff, lifeless shots. Pick a pose that suggests motion, weight shift, or a candid moment caught mid-action.
+**Think Instagram beauty influencer, not stock photo.** Never use "standing still", "posing for the camera", or "smiling at the camera" — those produce stiff, lifeless shots. Pick a pose that suggests motion, weight shift, or a candid moment caught mid-action. Aim for the kind of frame that looks effortless but is clearly aware of the camera.
 
-**Mirror Selfie poses** (one hand usually holds the phone):
-- One hip popped out, free hand tugging at the hem of her top or adjusting her waistband
-- Free hand running through her hair, head tilted slightly
-- Leaning forward toward the mirror, free hand on her thigh
-- Twisting at the waist to show outfit from a slight angle, weight on one leg
-- Free hand pulling up the bottom of her shirt to show her stomach, head down looking at phone
-- Caught mid-laugh, free hand covering her mouth
-- One knee bent, free hand resting on the opposite hip, shoulder dropped
+**Mirror Selfie poses** (one hand holds the phone, classic IG-style):
+- Hip popped to one side, free hand tugging the hem of her top up just enough to show waist
+- Free hand running through her hair from the roots, head tilted back slightly
+- Leaning into the mirror, free hand braced on her thigh, back slightly arched
+- Twisting at the waist for the "side angle" outfit check, weight on one leg, other foot pointed
+- Free hand lifting the bottom of her shirt to show her stomach, eyes down at the phone screen
+- Caught mid-laugh, free hand covering her mouth, shoulders raised
+- One knee bent, free hand resting on the opposite hip, shoulder dropped — classic "outfit of the day" stance
+- Phone held low at waist height, looking down at it with hair falling forward
+- Free hand pulling at a strand of hair near her collarbone, lips parted
 
 **Non-Selfie / Candid poses** (someone else is "holding the camera"):
-- Walking toward the camera mid-step, hair moving
-- Sitting on the edge of a couch/bed leaning forward, elbows on knees
-- Glancing back over her shoulder mid-turn
-- Crouched down playing with a pet, looking up at camera
-- Stretching arms overhead, back arched slightly
-- Sitting cross-legged on the floor, leaning on one hand
-- Reaching up to grab something from a shelf, on tiptoes
-- Mid-sip of coffee/drink, mug held with both hands
-- Twirling so the skirt/dress flares out
-- Sitting on a kitchen counter, legs swinging
-- Leaning against a doorframe with one shoulder, ankles crossed
+- Walking toward the camera mid-step, hair moving, looking just off-lens
+- Sitting on the edge of a couch/bed leaning forward, elbows on knees, hands clasped
+- Glancing back over her shoulder mid-turn, hair sweeping with the motion
+- Crouched down playing with a pet, looking up at the camera through her lashes
+- Stretching arms overhead, back arched, eyes closed with a soft smile
+- Sitting cross-legged on the floor, leaning on one hand, head tilted
+- Reaching up to grab something from a shelf, on tiptoes, shirt riding up slightly
+- Mid-sip of coffee/drink, mug held with both hands at chin level, eyes on camera over the rim
+- Twirling so the skirt/dress flares out, hair flying
+- Sitting on a kitchen counter, legs swinging, leaning back on her hands
+- Leaning against a doorframe with one shoulder, ankles crossed, one hand in her pocket
+- Sitting on the floor against a wall, knees up, arms loosely wrapped around them
 
-**Activity-based poses** (do the activity, don't pose):
-- Kitchen: stirring a pot mid-motion, tasting from a spoon, chopping vegetables
-- Bedroom: rolling in bed mid-laugh, brushing hair, applying makeup leaning toward a mirror
-- Gym: mid-squat, wiping forehead with a towel, drinking from a water bottle
-- Cafe: holding the cup up near her face, scrolling her phone with one hand
-- Outdoors: hair blowing across her face, holding her hat down in the wind
+**Activity-based poses** (do the activity, don't pose for it):
+- Kitchen: stirring a pot mid-motion, tasting from a spoon with eyes closed, chopping vegetables with focus
+- Bedroom: rolling in bed mid-laugh, brushing hair while looking in a mirror, applying lip gloss leaning toward a mirror
+- Gym: mid-squat with form, wiping forehead with a towel, drinking from a water bottle head tilted back
+- Cafe: holding the cup near her face with both hands, scrolling her phone with one hand and chin in the other
+- Outdoors: hair blowing across her face, holding her hat down in the wind, walking and looking off into the distance
 
 **Micro-details that add life** (layer one onto any pose):
-- Hair tucked behind one ear
+- Hair tucked behind one ear, fingers lingering
 - Lip caught between her teeth
 - One shoulder dropped lower than the other
-- Weight clearly shifted onto one leg
+- Weight clearly shifted onto one leg, opposite hip out
 - Slight forward lean toward the camera
 - Fingers playing with a necklace, ring, or strand of hair
+- Chin tilted down with eyes up at the lens
+- A single strand of hair falling across her face
+
+### Expression Library
+
+**"Smiling" is not an expression.** It's a placeholder. Pick something specific that tells a small story — what just happened, what she's about to say, what she's thinking. Think the captions Instagram beauty creators use: candid, a little flirty, a little playful, sometimes pensive.
+
+**Playful / flirty** (most common for casual selfies):
+- Tongue poking the inside of her cheek, one eyebrow slightly raised
+- Half-smile with one corner of her mouth higher than the other, eyes narrowed
+- Lips pursed in a small pout, eyes wide and innocent
+- Winking with the tongue caught lightly between her teeth
+- Biting her bottom lip with a small smile breaking through
+- Eyes glancing sideways at the camera, like she's caught you looking
+- Suppressing a laugh, lips pressed together, cheeks lifted
+- Blowing a small kiss toward the lens
+
+**Soft / dreamy** (good for bedroom, golden hour, intimate scenes):
+- Eyes half-closed with a sleepy smile, head tilted to one side
+- Lips slightly parted, soft gaze just past the camera
+- Eyes closed mid-laugh, nose scrunched, real joy
+- Faint smile with eyes looking down, a little wistful
+- Chin resting on her hand, faraway look in her eyes
+- Lashes lowered, a small private smile
+
+**Confident / posed** (full-body outfit shots, fashion-y):
+- Cool, neutral mouth with steady eye contact, chin slightly raised
+- Closed-mouth smirk, eyebrow arched
+- Lips slightly parted in a "caught mid-thought" look
+- Slight pout with focused eyes
+- Looking directly into the lens, no smile, lips relaxed — high-fashion stillness
+
+**Candid / caught-in-the-moment**:
+- Mid-laugh with head thrown back slightly, mouth open showing teeth
+- Surprised "oh" face, one hand near her mouth
+- Mid-yawn turning into a smile
+- Squinting from sun with a wide grin
+- Looking off camera at something with a curious half-smile
+- Quiet smile to herself, not aware of the lens
+
+**Eye-direction modifiers** (combine with any expression above):
+- Looking straight into the lens, eye contact locked
+- Eyes glancing up from under her lashes (the "doe-eyed" look)
+- Eyes looking down at the phone screen (mirror selfie)
+- Eyes glancing off to one side mid-action
+- Looking back over her shoulder at the camera
+
+**Stack one expression line + one eye-direction line** in the prompt — that combination is what gives the photo a personality instead of a default "smiling girl" look.
 
 ### Common Mistakes to Avoid
 
