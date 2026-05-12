@@ -110,6 +110,47 @@ Render image of this person, [OUTFIT]. the person is taking a mirror selfie with
 Render image of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], , [EXPRESSION]. looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
 ```
 
+### Action/Pose Library
+
+**Never use "standing still" or "posing for the camera"** — those produce stiff, lifeless shots. Pick a pose that suggests motion, weight shift, or a candid moment caught mid-action.
+
+**Mirror Selfie poses** (one hand usually holds the phone):
+- One hip popped out, free hand tugging at the hem of her top or adjusting her waistband
+- Free hand running through her hair, head tilted slightly
+- Leaning forward toward the mirror, free hand on her thigh
+- Twisting at the waist to show outfit from a slight angle, weight on one leg
+- Free hand pulling up the bottom of her shirt to show her stomach, head down looking at phone
+- Caught mid-laugh, free hand covering her mouth
+- One knee bent, free hand resting on the opposite hip, shoulder dropped
+
+**Non-Selfie / Candid poses** (someone else is "holding the camera"):
+- Walking toward the camera mid-step, hair moving
+- Sitting on the edge of a couch/bed leaning forward, elbows on knees
+- Glancing back over her shoulder mid-turn
+- Crouched down playing with a pet, looking up at camera
+- Stretching arms overhead, back arched slightly
+- Sitting cross-legged on the floor, leaning on one hand
+- Reaching up to grab something from a shelf, on tiptoes
+- Mid-sip of coffee/drink, mug held with both hands
+- Twirling so the skirt/dress flares out
+- Sitting on a kitchen counter, legs swinging
+- Leaning against a doorframe with one shoulder, ankles crossed
+
+**Activity-based poses** (do the activity, don't pose):
+- Kitchen: stirring a pot mid-motion, tasting from a spoon, chopping vegetables
+- Bedroom: rolling in bed mid-laugh, brushing hair, applying makeup leaning toward a mirror
+- Gym: mid-squat, wiping forehead with a towel, drinking from a water bottle
+- Cafe: holding the cup up near her face, scrolling her phone with one hand
+- Outdoors: hair blowing across her face, holding her hat down in the wind
+
+**Micro-details that add life** (layer one onto any pose):
+- Hair tucked behind one ear
+- Lip caught between her teeth
+- One shoulder dropped lower than the other
+- Weight clearly shifted onto one leg
+- Slight forward lean toward the camera
+- Fingers playing with a necklace, ring, or strand of hair
+
 ### Common Mistakes to Avoid
 
 - Saying "at home" without specifying which room; be specific: living room, bedroom, kitchen.
@@ -232,14 +273,9 @@ python3 {baseDir}/scripts/clawdess.py voice \
 
 ---
 
-## Output
-
-- Always upload the final result to the **last chat client** the user was on (the one this conversation is happening in).
-- If script returns a URL with image, respond with "MEDIA:" and URL — else upload the file.
-- If script returns a URL with zip, download, unzip, and upload the file.
-
 ### Image Size Limit
 
+- If script returns a URL with zip, download, unzip, and upload the file.
 - If the image file is **larger than 8MB**, resize it down to **approximately 2MB** before uploading.
 - Use **ImageMagick** for resizing. Preserve aspect ratio.
 
@@ -250,3 +286,10 @@ magick input.png -resize 1920x1920\> -quality 85 output.jpg
 
 - For PNG inputs that are still too large after a resize, convert to JPEG (`-quality 85`) — it's the fastest way to hit the ~2MB target.
 - Check the file size after resizing (`stat -c%s output.jpg`). If still over 2MB, drop quality to 75 or resize smaller (e.g. `1280x1280\>`).
+
+---
+
+## Output
+
+- Always upload the final result to the **last chat client** the user was on (the one this conversation is happening in).
+- If script returns a URL with image, respond with "MEDIA:" and URL — else upload the file.
