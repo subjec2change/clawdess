@@ -77,7 +77,7 @@ Before writing any prompt, think about the **scene context**:
 
 Before sending a media prompt, make sure it includes:
 
-- Correct Clawdess routing or subcommand for photo, video, or voice.
+- Correct route, provider, or subcommand for the requested media.
 - Reference image and identity lock from the workspace.
 - Scene, outfit or styling, hairstyle, pose or action.
 - Expression, lighting, framing, and mood.
@@ -89,10 +89,10 @@ Before sending a media prompt, make sure it includes:
 
 **Key rules:**
 - Always start prompt with `Render this image as make`
-- Always end with `WITHOUT Depth of field.` (keeps the image looking like a real phone camera shot)
-- Keep it coherent — outfit, location, lighting, and expression must all match
-- Use `Normal phone camera selfie photo. Phone camera photo quality` for selfie types to keep it realistic
-- Don't over-describe — one clear scene beats a wall of adjectives
+- Always end with `WITHOUT Depth of field.` to keep the result closer to a real phone-camera shot.
+- Keep it coherent: outfit, location, lighting, hairstyle, and expression must all match.
+- Use `Normal phone camera selfie photo. Phone camera photo quality` for selfie types to keep it realistic.
+- Don't over-describe; one clear scene beats a wall of adjectives.
 
 ### Prompt Templates
 
@@ -100,29 +100,29 @@ Every prompt must cover the core scene items: **where, when (lighting), outfit, 
 
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
-```
+```text
 Render this image and generate a png of this person, a full body photo but [OUTFIT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 2: Non-Selfie** — location/portrait focus
 
-```
+```text
 Render this image and generate a png of this person, [OUTFIT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. WITHOUT Depth of field.
 ```
 
 ### Common Mistakes to Avoid
 
-- Saying "at home" without specifying which room — be specific: living room, bedroom, kitchen
-- Outfit that doesn't match the setting — no heels at the beach, no pajamas at a restaurant
-- Forgetting lighting — indoor at night needs warm lamp light, not bright sunlight
-- Generic expressions — "smiling" is weak; "sleepy half-smile with one eye squinting" is vivid
+- Saying "at home" without specifying which room; be specific: living room, bedroom, kitchen.
+- Outfit that doesn't match the setting: no heels at the beach, no pajamas at a restaurant.
+- Forgetting lighting: indoor at night needs warm lamp light, not bright sunlight.
+- Generic expressions: "smiling" is weak; use a scene-specific expression.
 
 ### Execute Photo
 
 ```bash
 python3 {baseDir}/scripts/clawdess.py photo \
   --api "CLAWDESS_PHOTO_API" \
-  --provider "CHOOSE YOUR PROVIDER" \  
+  --provider "CHOOSE YOUR PROVIDER" \
   --prompt "your prompt here" \
   --image "Reference Image URL here"
 ```
