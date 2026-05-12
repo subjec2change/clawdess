@@ -88,7 +88,7 @@ Before sending a media prompt, make sure it includes:
 - Privacy and provider-safety compatibility.
 
 **Key rules:**
-- Always start prompt with `Render this image as make`
+- Always start prompt with `Render image of this person,`
 - Always end with `WITHOUT Depth of field.` to keep the result closer to a real phone-camera shot.
 - Keep it coherent: outfit, location, lighting, hairstyle, and expression must all match.
 - Use `Normal phone camera selfie photo. Phone camera photo quality` for selfie types to keep it realistic.
