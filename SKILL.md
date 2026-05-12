@@ -101,13 +101,13 @@ Every prompt must cover the core scene items: **where, when (lighting), outfit, 
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```text
-Render image based on picture of this person, [OUTFIT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [OUTFIT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 2: Non-Selfie** — location/portrait focus
 
 ```text
-Render image based on picture of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], , [EXPRESSION]. looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], , [EXPRESSION]. looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 ### Common Mistakes to Avoid
