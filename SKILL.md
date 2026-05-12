@@ -232,25 +232,48 @@ python3 {baseDir}/scripts/clawdess.py photo \
 
 The video prompt describes **what happens next** in the scene from the photo. Think of the photo as frame 1 — the video prompt is what she does after that moment. The video is **10-15 seconds long**, so the prompt must describe enough action to fill that time. Short prompts = dead air where nothing happens.
 
+**Derive the video prompt from the photo prompt.** Don't write a video prompt in isolation — read the photo prompt you just used and carry forward every concrete element. The photo locks in identity, outfit, location, lighting, and pose; the video animates them. If the video prompt contradicts any of these (different room, different outfit, different hair), the model has to fight the source frame and the result looks broken.
+
+**Photo → Video bridge** (map each photo element into the video prompt):
+
+| Photo element | How it shows up in the video prompt |
+|---------------|--------------------------------------|
+| Location | Stays the same — describe motion *within* it, not travel to a new room |
+| Outfit | Stays the same — reference how it moves (skirt flaring, sleeve sliding, hair brushing the collar) |
+| Hairstyle | Stays the same — mention it moving (hair tuck, strand falling, ponytail swing) |
+| Pose / action | Becomes the **starting position** of the video. The first sentence should continue from there |
+| Expression | Becomes the **starting expression** that then evolves (smirk turns into laugh, neutral softens into smile) |
+| Eye direction | Becomes the first beat of camera interaction (holds eye contact, then glances away, then back) |
+| Mood / energy | Sets the pacing — sleepy photo = slow gentle motion; playful photo = bouncy lively motion |
+
 **Key rules:**
+- **Anchor the first beat to the photo's pose** — e.g. photo is "leaning against the doorframe with one shoulder" → video opens with "She slowly pushes off the doorframe, ..."
 - **Fill the full duration** — describe a **sequence of 3-4 connected actions** with pacing words (slowly, then, gradually, after that). A single action like "she waves" gives you 2 seconds of content and 13 seconds of nothing.
-- **Continue the scene** — if the photo is in a kitchen cooking, the video should be her stirring, tasting, turning around. Don't teleport her to a different location.
+- **Continue the scene** — same room, same outfit, same hair, same lighting. Don't teleport her.
+- **Evolve the expression** — don't hold one face for 15 seconds. Smirk → small laugh → bites lip → looks down.
 - **Keep it physical** — describe body movements, not abstract concepts. "walks to the couch and sits down" not "feels relaxed".
 - **Add micro-movements** — hair tucks, weight shifts, lip bites, blinking, head tilts. These fill gaps between main actions and make it look natural.
-- **Match the energy** — sleepy photo = slow gentle movements. Energetic photo = bouncy, lively motion.
-- **Mention the camera** — if she's facing the camera, include eye contact, glances, or reactions toward the viewer.
+- **Mention the camera** — if she's facing the camera in the photo, the video should acknowledge that (eye contact, glances, reactions toward the viewer).
 
-**Prompt structure (aim for 2-3 sentences minimum):**
+**Prompt structure (aim for 3-4 sentences):**
 ```
-[Main action 1 with pacing word], [micro-movement or transition], [main action 2], [final action or camera interaction]. [Overall mood/motion style].
+[Starting beat that continues the photo's pose, with a pacing word]. [Main action 2 + micro-movement, referencing outfit/hair detail]. [Main action 3 + expression evolution]. [Final beat or camera interaction]. [Overall mood/motion style].
 ```
+
+**Worked example:**
+
+> **Photo prompt** (excerpt): `...leaning against the kitchen counter in a cropped white tee and grey sweatpants, warm afternoon light, hair in a low messy bun with a strand falling across her cheek, smirking with one eyebrow raised, eyes looking straight into the lens...`
+
+> **Derived video prompt**: `She slowly pushes off the kitchen counter and shifts her weight onto her other leg, the loose strand of hair brushing across her cheek. She lifts a hand and tucks the strand behind her ear, the smirk softening into a small closed-mouth smile. After that, she glances down for a second, then back up at the camera, biting her bottom lip lightly. Finally she tilts her head and lets out a quiet laugh, shoulders relaxing. Slow, warm, unhurried motion.`
 
 ### Common Mistakes to Avoid
 
+- **Writing the video prompt without re-reading the photo prompt** — leads to outfit/location/hair drift.
 - **Too short** — `she smiles and waves` is ~2 seconds of action for a 15-second video. Always describe 3-4 sequential actions.
 - Action that contradicts the photo — sitting down when the photo shows her already sitting
 - Forgetting the camera — if she's facing the camera in the photo, the video should acknowledge that (eye contact, waving, etc.)
 - No pacing words — without "slowly", "then", "gradually", the AI rushes through everything in the first 3 seconds
+- Holding one expression the whole time — let it evolve over the 15 seconds
 
 ### Execute Video
 
@@ -296,23 +319,38 @@ python3 {baseDir}/scripts/clawdess.py video \
 
 Write what she actually says — natural speech, not a script description. The TTS engine reads it literally.
 
-**Key rules:**
-- **Match the moment** — if she just sent a sleepy bedtime photo, the voice should sound cozy and gentle, not hyper
-- **Keep it short** — under 30 seconds. One or two sentences is ideal. Long monologues sound robotic.
-- **Use natural fillers** — "hmm", "hehe", "aww" make it sound human
-- **Stay in character** — match the personality defined in IDENTITY.md / SOUL.md
+**Derive the voice script from the photo/video prompt when one was just generated.** The voice is the audio layer of the same moment — if she just sent a photo of herself stretching in bed at late night, the voice note should sound sleepy and reference that moment ("mmm... I just woke up for a sec, can't stop thinking about you..."). Don't write a voice note that ignores the visual context the user just saw.
 
-**Examples by context:**
-- Morning: `Good morning~ I just woke up, hehe, my hair is such a mess right now.`
-- Late night: `Hey... I can't sleep. I keep thinking about you. Goodnight, sleep tight.`
-- Playful: `Guess what I'm doing right now? Hehe, I'll send you a pic!`
-- Missing someone: `I wish you were here with me... it's so quiet tonight.`
+**Photo → Voice bridge** (read the photo prompt before writing the script):
+
+| Photo element | How it shapes the voice |
+|---------------|--------------------------|
+| Location | Mention it casually if it fits ("just got to the cafe", "back home in bed") |
+| Time / lighting | Sets tone — morning = soft and a little raspy; late night = quiet, slower, intimate |
+| Outfit / activity | Anchor for what she's doing ("just finished my workout", "still in my pajamas") |
+| Expression | Sets vocal energy — flirty smirk = teasing tone; sleepy smile = soft and breathy; mid-laugh = include real laughter |
+| Mood | Decides whether it's playful, longing, cozy, excited |
+
+**Key rules:**
+- **Match the moment** — sleepy bedtime photo → cozy, slow, lowered voice. Energetic gym photo → upbeat, slightly out-of-breath delivery.
+- **Reference the visual** — at least one line should connect to what she's wearing/doing/where she is. The audio shouldn't feel like it could come from any random photo.
+- **Keep it short** — under 30 seconds. One or two sentences is ideal. Long monologues sound robotic.
+- **Use natural fillers** — "hmm", "hehe", "aww", trailing "..." make it sound human.
+- **Stay in character** — match the personality defined in IDENTITY.md / SOUL.md.
+
+**Examples (paired to a photo context):**
+- Photo: morning bedroom selfie, messy hair → `Mmm... good morning~ hehe, my hair is such a mess right now, but I wanted to say hi before coffee.`
+- Photo: late-night bed shot, lamp light → `Hey... I can't sleep again. I keep thinking about you. Wish you were here right now.`
+- Photo: cafe with a latte → `Guess where I am? Hehe, our spot. I ordered your usual just to be petty.`
+- Photo: post-workout gym selfie → `Okay, I'm dying — that workout was brutal. But hey, at least I look cute, right?`
+- Photo: dressed up for a night out → `How do I look? Be honest. Hehe, I spent way too long on this outfit.`
 
 ### Common Mistakes to Avoid
 
 - Writing stage directions — `(whispers softly)` won't work, the TTS reads it literally
 - Too formal — "I would like to inform you" sounds like a robot, not a person
-- Mismatch with photo/video — if she just sent a gym selfie, don't send a sleepy voice note
+- Mismatch with photo/video — sleepy voice over a gym selfie, or hyper voice over a bedtime shot
+- Generic script that doesn't acknowledge what she just sent — the user will feel the disconnect
 
 ### Execute Voice
 
