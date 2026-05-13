@@ -28,31 +28,17 @@ The reference image URL should be defined in `IDENTITY.md`
 
 ## Subcommands
 
-The CLI has three independent subcommands:
+The CLI has three independent subcommands. Each takes its API key via `--api` or the matching env var.
 
-| Subcommand | Purpose |
-|------------|---------|
-| `photo` | Generate an AI-edited photo from a reference image |
-| `video` | Generate a video from an image |
-| `voice` | Generate a voice message via TTS |
-
-## API Keys
-
-| Subcommand | Flag | Environment Variable | Notes |
-|------------|------|---------------------|-------|
-| `photo` | `--api` | `CLAWDESS_PHOTO_API` | |
-| `video` | `--api` | `CLAWDESS_VIDEO_API` | |
-| `voice` | `--api` | `CLAWDESS_VOICE_API` | |
+| Subcommand | Purpose | Env Variable |
+|------------|---------|--------------|
+| `photo` | Generate an AI-edited photo from a reference image | `CLAWDESS_PHOTO_API` |
+| `video` | Generate a video from an image | `CLAWDESS_VIDEO_API` |
+| `voice` | Generate a voice message via TTS | `CLAWDESS_VOICE_API` |
 
 ---
 
 ## Photo Mode
-
-### Workflow
-
-1. **Get user prompt** for how to edit the image
-2. **Edit image** via AI provider with fixed reference
-3. **Extract image URL** from response
 
 ### Prompt Crafting
 
@@ -202,12 +188,42 @@ Render image of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COL
 
 **Stack one expression line + one eye-direction line** in the prompt — that combination is what gives the photo a personality instead of a default "smiling girl" look.
 
+### Anatomy & Body Part Count Rules
+
+Image models hallucinate extra anatomy — extra hands, extra fingers, extra legs, extra arms, even extra heads — whenever the prompt over-assigns a body part, asks one body part to be in two places at once, or overloads the prompt with conflicting positional clauses. The same root cause produces all of them: the model tries to satisfy every clause and adds geometry to do it.
+
+**Universal rules (apply to every body part):**
+
+- **One body part = one job, named once.** If the right hand holds the phone, say so once. If the left leg is bent, say so once. Don't restate it in different words later in the prompt — the model may read the restatement as a second instance.
+- **Never put one body part in two places.** "Phone raised for selfie" + "phone covering her body" → extra hand/arm. "Leaning against the wall" + "sitting on the bed" → extra leg or twisted torso. "Looking at the phone" + "eye contact with camera" → second head or facing-wrong-way artifacts.
+- **Account for the full count, or don't mention it.** If you mention one hand, account for the other — otherwise leave both implicit. Half-specifying ("free arm crossing her chest" with no mention of the phone hand) leaves the model guessing.
+- **Keep prompts tight.** Dense prompts (multiple lighting sources + multiple identity locks + body dimensions + two coverage clauses + multiple pose verbs) overload the model and trigger anatomy drift. Short clauses beat compound ones.
+- **When in doubt, name the count.** Phrases like `both hands visible, ten fingers total`, `two legs only, both feet visible`, `single head, face clearly visible` anchor the model. Use sparingly — only when the framing is ambiguous.
+
+**Common duplication failures by body part:**
+
+| Body part | Common trigger | Fix |
+|-----------|----------------|-----|
+| **Hands / arms** | Phone described in two positions; both arms given jobs *plus* the phone "covering" the body | Pick one phone location; assign each arm exactly one job |
+| **Legs / feet** | "Sitting" + "leaning" + "crossing" in the same clause; mirror-selfie full-body with crossed legs and a popped hip described separately | Use one base position (sitting OR standing OR leaning), then *one* modifier (legs crossed / hip popped / weight on one leg) |
+| **Fingers** | Hand holding multiple objects ("phone and a cup"); hand making complex gesture ("peace sign while holding hair") | One object per hand; avoid stacked finger actions |
+| **Heads / faces** | Eye direction described two ways ("looking at phone" + "eye contact with camera"); reflection described as a separate subject ("her and her reflection both smiling") | Pick one eye direction; describe the reflection as part of the mirror, not a second person |
+| **Torso / breasts** | Multiple coverage clauses ("hair covering chest" + "arm crossing chest" + "phone covering chest") | Pick one coverage strategy total |
+
+**Coverage strategies for implied-nude / tasteful framing** (pick exactly one):
+- *Phone-up selfie*: phone raised at chest height, free arm across chest, hair falling over shoulders.
+- *Phone-low cover*: phone held low in front of body, free arm across chest, looking at her reflection (not at the phone).
+- *Towel/clothing cover*: phone in one hand for selfie, the other hand holding a towel/sheet against her body.
+
 ### Common Mistakes to Avoid
 
 - Saying "at home" without specifying which room; be specific: living room, bedroom, kitchen.
 - Outfit that doesn't match the setting: no heels at the beach, no pajamas at a restaurant.
 - Forgetting lighting: indoor at night needs warm lamp light, not bright sunlight.
 - Generic expressions: "smiling" is weak; use a scene-specific expression.
+- Assigning any single body part (phone hand, free arm, leg, eye direction) to two positions in one prompt — causes extra-anatomy artifacts.
+- Stacking pose verbs ("sitting + leaning + crossing legs") in one clause — model adds limbs to satisfy them all.
+- Describing the mirror reflection as a separate subject — can produce two heads or two bodies.
 
 ### Execute Photo
 
@@ -223,10 +239,7 @@ python3 {baseDir}/scripts/clawdess.py photo \
 
 ## Video Mode
 
-### Workflow
-
-1. **Use `--image` as source** (either a previously generated photo URL or any image URL)
-2. **Generate video** from the image via AI provider
+Pass `--image` either a previously generated photo URL or any image URL — the video is generated from that frame.
 
 ### Video Prompt Crafting
 
@@ -277,6 +290,8 @@ The video prompt describes **what happens next** in the scene from the photo. Th
 
 ### Execute Video
 
+When the user requests a video, first run the `photo` subcommand, then pass that resulting image URL as `--image` to `video`.
+
 ```bash
 python3 {baseDir}/scripts/clawdess.py video \
   --api "VIDEO_API_KEY" \
@@ -285,35 +300,9 @@ python3 {baseDir}/scripts/clawdess.py video \
   --image "REFERENCE_IMAGE_URL"
 ```
 
-### Photo + Video Together
-
-When the user requests a video, first generate the photo, then use the generated photo URL as `--image` for the video subcommand:
-
-```bash
-# Step 1: Generate photo
-python3 {baseDir}/scripts/clawdess.py photo \
-  --api "PHOTO_API_KEY" \
-  --provider "CHOOSE YOUR PROVIDER" \
-  --prompt "your prompt here" \
-  --image "REFERENCE_IMAGE_URL"
-
-# Step 2: Generate video from the photo (use IMAGE_URL from step 1 output)
-python3 {baseDir}/scripts/clawdess.py video \
-  --api "VIDEO_API_KEY" \
-  --provider "CHOOSE YOUR PROVIDER" \
-  --prompt "your prompt here" \
-  --image "IMAGE_URL_FROM_STEP_1"
-```
-
 ---
 
 ## Voice Mode
-
-### Workflow
-
-1. **Get user prompt** for what Clawdess should say
-2. **Generate voice** via TTS provider
-3. **Extract voice URL** from response
 
 ### Voice Prompt Crafting
 
