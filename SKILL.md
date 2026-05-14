@@ -93,7 +93,7 @@ Render image of this person, [OUTFIT]. the person is taking a mirror selfie with
 **Type 2: Non-Selfie** — location/portrait focus
 
 ```text
-Render image of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], , [EXPRESSION]. looking straight into the lens, eyes centered and clearly visible, [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 ### Action/Pose Library
