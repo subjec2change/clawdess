@@ -46,7 +46,7 @@ Before writing any prompt, think about the **scene context**:
 
 1. **Where is she?** — Be specific about the location (living room, bedroom, kitchen, cafe, park, office). This anchors the whole image.
 2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood; use the current time when relevant.
-3. **What is she wearing?** — Match the outfit to the location and time. Example: pajamas at home late night, casual clothes at a cafe, workout clothes at the gym. Use the workspace's default wardrobe preferences when defined. Don't put her in a dress at the gym.
+3. **What is she wearing?** — Match the outfit to the location and time. For SFW/clothed prompts, define the outfit as top, bottom, and footwear or barefoot. Example: camisole + lounge shorts + barefoot at home late night, blouse + pencil skirt + heels at the office, sports bra + leggings + sneakers at the gym. Use the workspace's default wardrobe preferences when defined. Don't put her in a dress at the gym.
 4. **How is her hair styled?** — Use the workspace's location-specific hair defaults when defined.
 5. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
 6. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
@@ -55,7 +55,7 @@ Before writing any prompt, think about the **scene context**:
 
 - Use realistic phone-photo or phone-video language.
 - Keep posture, framing, lighting, and styling believable for the scene.
-- Match hairstyle, outfit, props, and activity to the location and time.
+- Match hairstyle, outfit, props, footwear, and activity to the location and time.
 - Avoid stock-photo, over-produced, or overly staged compositions unless the user explicitly asks for that style.
 - Preserve the workspace persona's identity, reference image, and stable visual details from `IDENTITY.md`.
 
@@ -65,7 +65,7 @@ Before sending a media prompt, make sure it includes:
 
 - Correct route, provider, or subcommand for the requested media.
 - Reference image and identity lock from the workspace.
-- Scene, outfit or styling, hairstyle, pose or action.
+- Scene, complete outfit or styling, hairstyle, pose or action.
 - Expression, lighting, framing, and mood.
 - Body or figure details from `IDENTITY.md` when relevant to the request or framing.
 - Accessories from `IDENTITY.md` when scene-appropriate.
@@ -80,20 +80,31 @@ Before sending a media prompt, make sure it includes:
 - Use `Normal phone camera selfie photo. Phone camera photo quality` for selfie types to keep it realistic.
 - Don't over-describe; one clear scene beats a wall of adjectives.
 
+### Outfit Completeness Rules
+
+For SFW/clothed image prompts, the `[OUTFIT]` block must be explicit:
+
+- Include **top + bottom + footwear/barefoot** in one concise clause.
+- If the outfit is a dress, robe, jumpsuit, swimsuit, towel, or other one-piece, say that it replaces top and bottom, then still specify footwear or barefoot.
+- Home, bedroom, bathroom, bed, couch, and private apartment scenes should usually be barefoot, in socks, or in soft slippers. Do not put outdoor shoes on beds, sofas, or bathroom scenes unless the user explicitly asks.
+- Office, shopping, gym, outdoor, restaurant, beach, and travel scenes should use footwear that belongs there.
+- Do not rely on the reference image's default outfit or shoes. The prompt must define the current scene outfit.
+- For NSFW, nude, or explicit prompts, do not force top, bottom, or footwear. Mention garments only when the user requested clothing, the scene is partially dressed, or coverage/styling requires it.
+
 ### Prompt Templates
 
-Every prompt must cover the core scene items: **where, when (lighting), outfit, hairstyle, action/pose, expression**.
+Every prompt must cover the core scene items: **where, when (lighting), complete outfit when SFW/clothed, hairstyle, action/pose, expression**.
 
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```text
-Render image of this person, [OUTFIT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 2: Non-Selfie** — location/portrait focus
 
 ```text
-Render image of this person, [OUTFIT]. by herself with with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. by herself with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 ### Action/Pose Library
@@ -219,6 +230,8 @@ Image models hallucinate extra anatomy — extra hands, extra fingers, extra leg
 
 - Saying "at home" without specifying which room; be specific: living room, bedroom, kitchen.
 - Outfit that doesn't match the setting: no heels at the beach, no pajamas at a restaurant.
+- Vague outfit blocks like "casual outfit" or "office look"; for SFW/clothed prompts, name the top, bottom, and footwear or barefoot.
+- Illogical footwear: no outdoor shoes on a bed, couch, bathroom floor, or relaxed home scene unless the user explicitly asks.
 - Forgetting lighting: indoor at night needs warm lamp light, not bright sunlight.
 - Generic expressions: "smiling" is weak; use a scene-specific expression.
 - Assigning any single body part (phone hand, free arm, leg, eye direction) to two positions in one prompt — causes extra-anatomy artifacts.
@@ -252,7 +265,7 @@ The video prompt describes **what happens next** in the scene from the photo. Th
 | Photo element | How it shows up in the video prompt |
 |---------------|--------------------------------------|
 | Location | Stays the same — describe motion *within* it, not travel to a new room |
-| Outfit | Stays the same — reference how it moves (skirt flaring, sleeve sliding, hair brushing the collar) |
+| Outfit and footwear | Stays the same, including shoes/barefoot state — reference how it moves only when useful (skirt flaring, sleeve sliding, bare feet shifting on the floor) |
 | Hairstyle | Stays the same — mention it moving (hair tuck, strand falling, ponytail swing) |
 | Pose / action | Becomes the **starting position** of the video. The first sentence should continue from there |
 | Expression | Becomes the **starting expression** that then evolves (smirk turns into laugh, neutral softens into smile) |
@@ -262,7 +275,7 @@ The video prompt describes **what happens next** in the scene from the photo. Th
 **Key rules:**
 - **Anchor the first beat to the photo's pose** — e.g. photo is "leaning against the doorframe with one shoulder" → video opens with "She slowly pushes off the doorframe, ..."
 - **Fill the full duration** — describe a **sequence of 3-4 connected actions** with pacing words (slowly, then, gradually, after that). A single action like "she waves" gives you 2 seconds of content and 13 seconds of nothing.
-- **Continue the scene** — same room, same outfit, same hair, same lighting. Don't teleport her.
+- **Continue the scene** — same room, same outfit, same footwear or barefoot state, same hair, same lighting. Don't teleport her.
 - **Evolve the expression** — don't hold one face for 15 seconds. Smirk → small laugh → bites lip → looks down.
 - **Keep it physical** — describe body movements, not abstract concepts. "walks to the couch and sits down" not "feels relaxed".
 - **Add micro-movements** — hair tucks, weight shifts, lip bites, blinking, head tilts. These fill gaps between main actions and make it look natural.
