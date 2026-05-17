@@ -101,7 +101,13 @@ Every prompt must cover the core scene items: **where, when (lighting), complete
 Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
-**Type 2: Non-Selfie** — location/portrait focus
+**Type 2: Normal Selfie** — outfit showcases, half-body shots
+
+```text
+Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. the person is taking a selfie. Phone should not be visible since its a selfie. She is in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+```
+
+**Type 3: Non-Selfie** — location/portrait focus
 
 ```text
 Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. by herself with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
