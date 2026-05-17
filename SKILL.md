@@ -36,6 +36,17 @@ The CLI has three independent subcommands. Each takes its API key via `--api` or
 | `video` | Generate a video from an image | `CLAWDESS_VIDEO_API` |
 | `voice` | Generate a voice message via TTS | `CLAWDESS_VOICE_API` |
 
+## Waiting time
+
+Photo, video, and voice generation are slow async jobs — typical completion times range from 30 seconds to 15+ minutes depending on the provider and load. The CLI scripts handle polling internally and will print status updates while they wait.
+
+**Rules:**
+- **Do not kill, cancel, or interrupt the script while it is still polling.** As long as the server is still responding with a waiting/queued/processing status, the job is alive — let it run.
+- **Do not retry or re-submit.** Re-submitting starts a new job and wastes the queue slot you already have.
+- **Treat repeated `status=...` poll lines as a healthy signal**, not a hang. They mean the server is still working.
+- **Only abort if** the script itself exits with an error, the server returns `FAILED` / `ERROR`, or the user explicitly asks to stop.
+- If the user asks "is it done yet?" while a job is running, report the latest status line — don't assume failure.
+
 ---
 
 ## Photo Mode
@@ -266,7 +277,23 @@ python3 {baseDir}/scripts/clawdess.py photo \
 
 ## Video Mode
 
-Pass `--image` either a previously generated photo URL or any image URL — the video is generated from that frame.
+### `--image` source rule (strict)
+
+The video is built from the frame at `--image`, so this value directly controls the result. Get it wrong and the video will either fail outright or animate the wrong subject.
+
+**The `--image` value MUST be one of these two, and nothing else:**
+
+1. **The URL returned by the most recent `photo` subcommand run** (the standard photo → video flow).
+2. **A URL the user explicitly provided in this conversation** (e.g. they pasted a link asking you to animate that image).
+
+**Never pass any of these as `--image`:**
+
+- ❌ A local file path or `file://...` URI — the provider cannot read your filesystem.
+- ❌ The reference image URL from `IDENTITY.md` — that's the identity anchor for `photo`, not a source frame for `video`. Animating it skips the scene the user just asked for.
+- ❌ A URL you guessed, reconstructed, or assumed — if you don't have a concrete URL from rule 1 or rule 2, stop and run `photo` first.
+- ❌ A placeholder like `REFERENCE_IMAGE_URL` or `IMAGE_URL_FROM_STEP_1` — those are template tokens, not real values.
+
+**If the user requests a video and no photo has been generated yet:** run `photo` first, capture the returned URL, then pass that URL to `video`. Do not skip the photo step.
 
 ### Video Prompt Crafting
 
