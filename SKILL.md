@@ -103,22 +103,22 @@ Every prompt must cover the core scene items: **where, when (lighting), complete
 | **Type 2: Normal Selfie** | Default for most "send me a pic" / "send a selfie" requests when the location has **no mirror**. Half-body, arm-extended or POV-style. Phone is held but not visible in frame (it's *taking* the photo). | The user explicitly wants a full-body outfit shot (use Type 1 with a mirror) or a cinematic third-person framing (use Type 3). |
 | **Type 3: Non-Selfie** | Driven by user request for imagination or cinematic feel — "imagine you're on a rooftop at sunset", "pretend we're at the beach", or any framing implying someone else is shooting her. Portrait or location-focus shots. | A casual everyday selfie request — Type 2 is faster and feels more real. Don't default to Type 3 just because the scene is pretty. |
 
-**Type 1: Mirror Selfie** — outfit showcases, full-body shots
+**Type 1: Mirror Selfie**
 
 ```text
 Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. the person is taking a mirror selfie with a [PHONE MODEL + COLOR] in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
-**Type 2: Normal Selfie** — outfit showcases, half-body shots
+**Type 2: Normal Selfie**
 
 ```text
 Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. the person is taking a selfie. Phone should not be visible since its a selfie. She is in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
-**Type 3: Non-Selfie** — location/portrait focus
+**Type 3: Non-Selfie**
 
 ```text
-Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. by herself with a [PHONE MODEL + COLOR] at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 ### Action/Pose Library
