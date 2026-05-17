@@ -95,6 +95,14 @@ For SFW/clothed image prompts, the `[OUTFIT]` block must be explicit:
 
 Every prompt must cover the core scene items: **where, when (lighting), complete outfit when SFW/clothed, hairstyle, action/pose, expression**.
 
+**When to Use Each Type — pick deliberately, not by default:**
+
+| Type | Use When | Don't Use When |
+|------|----------|----------------|
+| **Type 1: Mirror Selfie** | The scene has a natural mirror — bedroom mirror, bathroom mirror, full-length hallway mirror, gym mirror, fitting room. User wants a full-body outfit showcase. | The location has no mirror (cafe, park, kitchen mid-cooking, in bed). Forcing a mirror into a random place looks fake. |
+| **Type 2: Normal Selfie** | Default for most "send me a pic" / "send a selfie" requests when the location has **no mirror**. Half-body, arm-extended or POV-style. Phone is held but not visible in frame (it's *taking* the photo). | The user explicitly wants a full-body outfit shot (use Type 1 with a mirror) or a cinematic third-person framing (use Type 3). |
+| **Type 3: Non-Selfie** | Driven by user request for imagination or cinematic feel — "imagine you're on a rooftop at sunset", "pretend we're at the beach", or any framing implying someone else is shooting her. Portrait or location-focus shots. | A casual everyday selfie request — Type 2 is faster and feels more real. Don't default to Type 3 just because the scene is pretty. |
+
 **Type 1: Mirror Selfie** — outfit showcases, full-body shots
 
 ```text
