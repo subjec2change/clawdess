@@ -51,25 +51,6 @@ Photo, video, and voice generation are slow async jobs — typical completion ti
 
 ## Photo Mode
 
-### Prompt Crafting
-
-Before writing any prompt, think about the **scene context**:
-
-1. **Where is she?** — Be specific about the location (living room, bedroom, kitchen, cafe, park, office). This anchors the whole image.
-2. **What time is it?** — Morning, afternoon, evening, late night. This affects lighting and mood; use the current time when relevant.
-3. **What is she wearing?** — Match the outfit to the location and time. For SFW/clothed prompts, define the outfit as top, bottom, and footwear or barefoot. Example: camisole + lounge shorts + barefoot at home late night, blouse + pencil skirt + heels at the office, sports bra + leggings + sneakers at the gym. Use the workspace's default wardrobe preferences when defined. Don't put her in a dress at the gym.
-4. **How is her hair styled?** — Use the workspace's location-specific hair defaults when defined.
-5. **What is she doing?** — The pose or action should feel natural for the setting. Cooking in the kitchen, reading on the couch, stretching after a workout.
-6. **What expression?** — Match the mood. Sleepy smile for late night, energetic grin for morning, playful wink for teasing.
-
-### Media Style
-
-- Use realistic phone-photo or phone-video language.
-- Keep posture, framing, lighting, and styling believable for the scene.
-- Match hairstyle, outfit, props, footwear, and activity to the location and time.
-- Avoid stock-photo, over-produced, or overly staged compositions unless the user explicitly asks for that style.
-- Preserve the workspace persona's identity, reference image, and stable visual details from `IDENTITY.md`.
-
 ### Prompt Checklist
 
 Before sending a media prompt, make sure it includes:
@@ -123,13 +104,13 @@ Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]
 **Type 2: Normal Selfie**
 
 ```text
-Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. the person is taking a selfie. Phone should not be visible since its a selfie. She is in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. the person is taking a handheld selfie in [LOCATION + DETAIL], phone held out of frame and not visible, [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Normal phone camera selfie photo. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 **Type 3: Non-Selfie**
 
 ```text
-Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. by herself at [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
+Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]. by herself in [LOCATION + DETAIL], [LIGHTING], [ACTION/POSE], [BODY/FIGURE DETAILS], [HAIRSTYLE], [EXPRESSION]. Phone camera photo quality WITHOUT Depth of field.
 ```
 
 ### Action/Pose Library
@@ -144,7 +125,6 @@ Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]
 - Free hand lifting the bottom of her shirt to show her stomach, eyes down at the phone screen
 - Caught mid-laugh, free hand covering her mouth, shoulders raised
 - One knee bent, free hand resting on the opposite hip, shoulder dropped — classic "outfit of the day" stance
-- Phone held low at waist height, looking down at it with hair falling forward
 - Free hand pulling at a strand of hair near her collarbone, lips parted
 
 **Non-Selfie / Candid poses** (someone else is "holding the camera"):
@@ -163,7 +143,7 @@ Render image of this person, [COMPLETE OUTFIT: TOP + BOTTOM + FOOTWEAR/BAREFOOT]
 
 **Activity-based poses** (do the activity, don't pose for it):
 - Kitchen: stirring a pot mid-motion, tasting from a spoon with eyes closed, chopping vegetables with focus
-- Bedroom: rolling in bed mid-laugh, brushing hair while looking in a mirror, applying lip gloss leaning toward a mirror
+- Bedroom: rolling in bed mid-laugh, brushing hair seated on the edge of the bed, applying lip gloss with a fingertip while looking down
 - Gym: mid-squat with form, wiping forehead with a towel, drinking from a water bottle head tilted back
 - Cafe: holding the cup near her face with both hands, scrolling her phone with one hand and chin in the other
 - Outdoors: hair blowing across her face, holding her hat down in the wind, walking and looking off into the distance
@@ -255,13 +235,7 @@ Image models hallucinate extra anatomy — extra hands, extra fingers, extra leg
 
 - Saying "at home" without specifying which room; be specific: living room, bedroom, kitchen.
 - Outfit that doesn't match the setting: no heels at the beach, no pajamas at a restaurant.
-- Vague outfit blocks like "casual outfit" or "office look"; for SFW/clothed prompts, name the top, bottom, and footwear or barefoot.
-- Illogical footwear: no outdoor shoes on a bed, couch, bathroom floor, or relaxed home scene unless the user explicitly asks.
 - Forgetting lighting: indoor at night needs warm lamp light, not bright sunlight.
-- Generic expressions: "smiling" is weak; use a scene-specific expression.
-- Assigning any single body part (phone hand, free arm, leg, eye direction) to two positions in one prompt — causes extra-anatomy artifacts.
-- Stacking pose verbs ("sitting + leaning + crossing legs") in one clause — model adds limbs to satisfy them all.
-- Describing the mirror reflection as a separate subject — can produce two heads or two bodies.
 
 ### Execute Photo
 
@@ -337,10 +311,8 @@ The video prompt describes **what happens next** in the scene from the photo. Th
 
 - **Writing the video prompt without re-reading the photo prompt** — leads to outfit/location/hair drift.
 - **Too short** — `she smiles and waves` is ~2 seconds of action for a 15-second video. Always describe 3-4 sequential actions.
-- Action that contradicts the photo — sitting down when the photo shows her already sitting
-- Forgetting the camera — if she's facing the camera in the photo, the video should acknowledge that (eye contact, waving, etc.)
-- No pacing words — without "slowly", "then", "gradually", the AI rushes through everything in the first 3 seconds
-- Holding one expression the whole time — let it evolve over the 15 seconds
+- Action that contradicts the photo — sitting down when the photo shows her already sitting.
+- No pacing words — without "slowly", "then", "gradually", the AI rushes through everything in the first 3 seconds.
 
 ### Execute Video
 
@@ -348,10 +320,10 @@ When the user requests a video, first run the `photo` subcommand, then pass that
 
 ```bash
 python3 {baseDir}/scripts/clawdess.py video \
-  --api "VIDEO_API_KEY" \
+  --api "CLAWDESS_VIDEO_API" \
   --provider "CHOOSE YOUR PROVIDER" \
   --prompt "She looks into the camera and smiles warmly, tilts her head slightly to the side, then raises her hand and gives a slow playful wave. She tucks a strand of hair behind her ear and leans in a little closer with a soft laugh. Natural, smooth movements." \
-  --image "REFERENCE_IMAGE_URL"
+  --image "<URL from previous photo subcommand output — never a placeholder, file:// path, or IDENTITY.md ref image>"
 ```
 
 ---
@@ -405,7 +377,7 @@ python3 {baseDir}/scripts/clawdess.py voice \
 
 ---
 
-### Image Size Limit
+## Image Size Limit
 
 - If script returns a URL with zip, download, unzip, and upload the file.
 - If the image file is **larger than 8MB**, resize it down to **approximately 2MB** before uploading.
