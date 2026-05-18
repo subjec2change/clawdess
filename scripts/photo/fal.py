@@ -16,7 +16,7 @@ def generate(api_key, prompt, image_url):
         "output_format": "png",
     }
     headers = {"Authorization": f"Key {api_key}", "Content-Type": "application/json"}
-    code, body = api_post("https://queue.fal.run/openai/gpt-image-2/edit", headers, payload)
+    code, body = api_post("https://queue.fal.run/fal-ai/bytedance/seedream/v4.5/edit", headers, payload)
     request_id = body.get("request_id")
     if not request_id:
         print(f"FAL submit failed ({code}): {json.dumps(body)[:500]}")
@@ -24,8 +24,8 @@ def generate(api_key, prompt, image_url):
     print(f"FAL submitted ({code}): request_id={request_id}")
 
     auth = {"Authorization": f"Key {api_key}"}
-    status_url = f"https://queue.fal.run/openai/gpt-image-2/edit/requests/{request_id}/status"
-    result_url = f"https://queue.fal.run/openai/gpt-image-2/edit/requests/{request_id}"
+    status_url = f"https://queue.fal.run/fal-ai/bytedance/requests/{request_id}/status"
+    result_url = f"https://queue.fal.run/fal-ai/bytedance/requests/{request_id}"
 
     # Poll status until completed
     for i in range(300):
