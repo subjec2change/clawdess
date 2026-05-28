@@ -65,12 +65,20 @@ The `--channel` and `--target` flags are optional — omit them to generate medi
 
 | Type | Provider | Model | Default |
 |------|----------|-------|---------|
-| Photo | FAL | Bytedance Seedream v5 Lite | Yes |
+| Photo | FAL | Bytedance Seedream 4.5 | Yes |
 | Photo | HUOSHANYUN | Doubao Seedream 4.5 | |
+| Photo | XAI | Grok Imagine Image | |
 | Video | FAL | Wan v2.2 | Yes |
 | Video | XAI | Grok Imagine Video | |
 | Voice | ALIYUN | Qwen3-TTS-Flash | Yes |
+| Voice | ELEVENLABS | Eleven Multilingual v2 | |
 | Voice | ZAI | GLM-TTS | |
+
+List installed providers:
+
+```bash
+python3 scripts/clawdess.py providers
+```
 
 Select a provider with `--provider`:
 
@@ -93,11 +101,13 @@ scripts/
   photo/               # Photo providers
     fal.py
     huoshanyun.py
+    xai.py
   video/               # Video providers
     fal.py
     xai.py
   voice/               # Voice providers
     aliyun.py
+    elevenlabs.py
     zai.py
 ```
 
