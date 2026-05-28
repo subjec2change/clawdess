@@ -70,12 +70,6 @@ python3 {baseDir}/scripts/clawdess.py photo \
   --image "<reference image URL from IDENTITY.md>"
 ```
 
-Output handling:
-
-- If the script prints `MEDIA: <url>`, send that URL.
-- If it returns a zip/file, download/extract as needed and upload the final media.
-- If an image is over 20 MB, resize near 8 MB before upload.
-
 ## Video
 
 The `--image` source must be either:
