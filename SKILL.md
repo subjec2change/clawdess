@@ -47,6 +47,7 @@ Rules:
 - Match outfit, footwear, lighting, and location. Do not inherit clothing from the reference image.
 - Use a candid pose and specific expression; avoid generic `standing still`, `posing`, or plain `smiling`.
 - Avoid anatomy drift: one body part gets one job, one eye direction, one base pose, and no conflicting hand/phone/body clauses.
+- Use identity/body details from `IDENTITY.md` when available. include `Do not change the face, identity and body details`.
 - If a phone is visible, include phone model/color from `IDENTITY.md` when available.
 
 Framing choices:
