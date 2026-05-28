@@ -28,7 +28,7 @@ Use this skill to send companion media through `scripts/clawdess.py`.
 
 ## Async Jobs
 
-Photo, video, and voice jobs can take 30 seconds to 15+ minutes. The CLI polls and prints status.
+Photo, video, and voice jobs can take 30 seconds to 15+ minutes. The CLI polls and prints status. Wait until completed.
 
 - Let polling continue while the server returns queued/waiting/processing statuses.
 - Do not resubmit unless the script exits with an error, the provider returns `FAILED`/`ERROR`, or the user asks to stop.
