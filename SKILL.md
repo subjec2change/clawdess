@@ -59,7 +59,7 @@ Framing choices:
 Template:
 
 ```text
-Render image of this person, [complete outfit]. [framing] in [specific location], [lighting], [candid action/pose], [identity/body details if useful], [hairstyle], [specific expression]. [quality tag] WITHOUT Depth of field.
+Render image of this person, [complete outfit]. [framing] in [specific location], [lighting], [candid action/pose], [identity/body details], [hairstyle], [specific expression]. [quality tag] WITHOUT Depth of field.
 ```
 
 Run:
