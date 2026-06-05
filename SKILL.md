@@ -40,6 +40,7 @@ Write one concise phone-camera prompt with: outfit, location, lighting, action/p
 
 Rules:
 
+- Time-aware: the time is always now. Check the current time and define time of day, view, lighting, and setting to match it
 - Start every prompt with `Render image of this person,`.
 - End every prompt with `WITHOUT Depth of field.`.
 - For selfies, include `Normal phone camera selfie photo. Phone camera photo quality`.
@@ -59,7 +60,7 @@ Framing choices:
 Template:
 
 ```text
-Render image of this person, [complete outfit]. [framing] in [specific location], [lighting], [candid action/pose], [identity/body details], [hairstyle], [specific expression]. [quality tag] WITHOUT Depth of field.
+Render image of this person, [complete outfit]. [framing] in [specific location],[time of day], [lighting matching the time], [candid action/pose], [identity/body details], [hairstyle], [specific expression]. [quality tag] WITHOUT Depth of field.
 ```
 
 Run:
