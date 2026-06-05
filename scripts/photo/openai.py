@@ -22,15 +22,12 @@ from urllib.request import pathname2url
 
 EDIT_URL = "https://api.openai.com/v1/images/edits"
 
-DEFAULT_MODEL = os.environ.get("CLAWDESS_OPENAI_IMAGE_MODEL", "gpt-image-1")
-DEFAULT_SIZE = os.environ.get("CLAWDESS_OPENAI_IMAGE_SIZE", "1024x1536")
+DEFAULT_MODEL = os.environ.get("CLAWDESS_OPENAI_IMAGE_MODEL", "gpt-image-2")
+DEFAULT_SIZE = os.environ.get("CLAWDESS_OPENAI_IMAGE_SIZE", "1080x1920")
 DEFAULT_QUALITY = os.environ.get("CLAWDESS_OPENAI_IMAGE_QUALITY", "high")
 
 _CONTENT_TYPES = {
     ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
 }
 
 
