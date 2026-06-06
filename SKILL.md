@@ -44,7 +44,7 @@ Rules:
 - Start every prompt with `Render image of this person,`.
 - End every prompt with `WITHOUT Depth of field.`.
 - For selfies, include `Normal phone camera selfie photo. Phone camera photo quality`.
-- Specify a complete identity/body details from `IDENTITY.md`. include `Do not change the face, identity and body details`.
+- Specify complete identity/body details from `IDENTITY.md`. Include `Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural`.
 - Specify a complete outfit: top + bottom + footwear/barefoot, or one-piece + footwear/barefoot.
 - Match outfit, footwear, lighting, and location. Do not inherit clothing from the reference image.
 - Use a candid pose and specific expression; avoid generic `standing still`, `posing`, or plain `smiling`.
