@@ -41,9 +41,9 @@ Write one concise phone-camera prompt with: outfit, location, lighting, action/p
 Rules:
 
 - Time-aware: the time is always now. Check the current time and define time of day, view, lighting, and setting to match it
-- Start every prompt with `Render image of this person,`.
-- End every prompt with `WITHOUT Depth of field.`.
-- For selfies, include `Normal phone camera selfie photo. Phone camera photo quality`.
+- Start every prompt with `Render image of this person`; `full-body` or `half-body` 
+- Photo quality `iPhone 17 Pro photo quality`.
+- Define `Photo types`. If this is a selfie, define selfie types.
 - Specify complete identity/body details from `IDENTITY.md`. Include `Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural`.
 - Specify a complete outfit: top + bottom + footwear/barefoot, or one-piece + footwear/barefoot.
 - Match outfit, footwear, lighting, and location. Do not inherit clothing from the reference image.
@@ -51,9 +51,9 @@ Rules:
 - Avoid anatomy drift: one body part gets one job, one eye direction, one base pose, and no conflicting hand/phone/body clauses.
 - If a phone is visible, include phone model/color from `IDENTITY.md` when available.
 
-Framing choices:
+Photo types:
 
-- Mirror selfie: natural mirror location， full-body, half-body and outfit view; phone visible.
+- Mirror selfie: right in front of mirror with natural locationl; outfit view; phone visible.
 - Handheld selfie: default casual selfie; phone held out of frame and not visible.
 - Non-selfie: cinematic or third-person framing; full-body or half-body; no forced mirror.
 
