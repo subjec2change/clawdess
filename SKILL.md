@@ -53,9 +53,9 @@ Rules:
 
 Framing choices:
 
-- Mirror selfie: natural mirror location or full-body outfit view; phone visible.
+- Mirror selfie: natural mirror location， full-body, half-body and outfit view; phone visible.
 - Handheld selfie: default casual selfie; phone held out of frame and not visible.
-- Non-selfie: cinematic or third-person framing; no forced mirror.
+- Non-selfie: cinematic or third-person framing; full-body or half-body; no forced mirror.
 
 Template:
 
