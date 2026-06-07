@@ -46,7 +46,7 @@ Rules:
 - Define `Photo types`. If this is a selfie, define selfie types.
 - Specify complete identity/body details from `IDENTITY.md`. Include `Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural`.
 - Specify a complete outfit: top + bottom + footwear/barefoot, or one-piece + footwear/barefoot.
-- Match outfit, footwear, lighting, and location. Do not inherit clothing from the reference image.
+- Match outfit, footwear, lighting, hairstyle, makeup, and location. Do not inherit clothing, hairstyle and makeup from the reference image.
 - Use a candid pose and specific expression; avoid generic `standing still`, `posing`, or plain `smiling`.
 - Avoid anatomy drift: one body part gets one job, one eye direction, one base pose, and no conflicting hand/phone/body clauses.
 - If a phone is visible, include phone model/color from `IDENTITY.md` when available.
@@ -60,7 +60,7 @@ Photo types:
 Template:
 
 ```text
-Render image of this person, [complete outfit]. [framing] in [specific location], [time of day], [lighting matching the time], [candid action/pose], [identity/body details], [hairstyle], [specific expression]. [quality tag] WITHOUT Depth of field.
+Render image of this person, [complete outfit]. [framing] in [specific location], [time of day], [lighting matching the time], [candid action/pose], [identity/body details], [hairstyle], [makeup], [specific expression]. [quality tag] WITHOUT Depth of field.
 ```
 
 Run:
