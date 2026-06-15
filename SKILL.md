@@ -42,7 +42,6 @@ Rules:
 
 - Time-aware: the time is always now. Check the current time and define time of day, view, lighting, and setting to match it
 - Start every prompt with `Render image of this person`; `full-body` or `half-body` 
-- Photo quality `iPhone 17 Pro photo quality`.
 - Define `Photo types`. If this is a selfie, define selfie types.
 - Specify complete identity/body details from `IDENTITY.md`. Include `Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural`.
 - Specify a complete outfit: top + bottom + footwear/barefoot, or one-piece + footwear/barefoot.
@@ -60,7 +59,7 @@ Photo types:
 Template:
 
 ```text
-Render image of this person, [complete outfit]. [framing] in [specific location], [time of day], [lighting matching the time], [candid action/pose], [identity/body details], [hairstyle], [makeup], [specific expression]. [quality tag] WITHOUT Depth of field.
+Render image of this person, [complete outfit]. [framing] in [specific location], [time of day], [lighting matching the time], [candid action/pose], [identity/body details], [hairstyle], [makeup], [specific expression].
 ```
 
 Run:
