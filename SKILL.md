@@ -38,16 +38,32 @@ Photo, video, and voice jobs can take 30 seconds to 15+ minutes. The CLI polls a
 
 Write one concise phone-camera prompt with: outfit, location, lighting, action/pose, hairstyle, expression, framing, and identity details from `IDENTITY.md` when relevant.
 
+Prompt-building loop (do this every time before running):
+
+1. Think: draft the prompt from the request + `IDENTITY.md`.
+2. Verify: re-read `IDENTITY.md` and confirm body figure, skin tone, hair, and every accessory match. Confirm the scene is physically possible.
+3. Rethink: if anything conflicts, is missing, or is ambiguous, rewrite the clause. Do not carry over guesses.
+4. Check: run the final-check list below. Only run the CLI once it passes.
+
+Final check (all must be true):
+
+- Anatomy is correct: exactly two hands, two arms, two legs, two feet, one head, one set of eyes. No extra or missing limbs, fingers, or digits.
+- One body part does one job. No conflicting hand/phone/body clauses, no impossible poses.
+- Body figure matches `IDENTITY.md` (height, build, proportions). Do not slim, enlarge, or restyle it.
+- Accessories match `IDENTITY.md` exactly: only the accessories it lists (e.g. glasses, jewelry, tattoos, piercings), nothing invented, nothing dropped.
+- Skin tone and visible skin color match the identity/reference image.
+- Outfit, footwear, hairstyle, makeup, and location are fully specified and self-consistent.
+
 Rules:
 
 - Time-aware: the time is always now. Check the current time and define time of day, view, lighting, and setting to match it
 - Start every prompt with `Render image of this person`; `full-body` or `half-body` 
 - Define `Photo types`. If this is a selfie, define selfie types.
-- Specify complete identity/body details from `IDENTITY.md`. Include `Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural`.
+- Specify complete identity/body details from `IDENTITY.md`, including body figure and accessories. Include `Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural`.
 - Specify a complete outfit: top + bottom + footwear/barefoot, or one-piece + footwear/barefoot.
 - Match outfit, footwear, lighting, hairstyle, makeup, and location. Do not inherit clothing, hairstyle and makeup from the reference image.
 - Use a candid pose and specific expression; avoid generic `standing still`, `posing`, or plain `smiling`.
-- Avoid anatomy drift: one body part gets one job, one eye direction, one base pose, and no conflicting hand/phone/body clauses.
+- Avoid anatomy drift: one body part gets one job, one eye direction, one base pose, and no conflicting hand/phone/body clauses. Never produce extra hands, arms, legs, feet, or fingers.
 - If a phone is visible, include phone model/color from `IDENTITY.md` when available.
 
 Photo types:
@@ -59,7 +75,7 @@ Photo types:
 Template:
 
 ```text
-Render image of this person, [complete outfit]. [framing] in [specific location], [time of day], [lighting matching the time], [candid action/pose], [identity/body details], [hairstyle], [makeup], [specific expression].
+Render image of this person, [complete outfit: top + bottom + footwear, or one-piece + footwear]. [framing] in [specific location], [time of day], [lighting matching the time], [single candid action/pose with one job per body part], [body figure from IDENTITY.md], [accessories from IDENTITY.md, or "no extra accessories"], [hairstyle], [makeup], [specific expression]. Natural anatomy: exactly two hands, two arms, two legs, two feet, correct number of fingers; no extra or missing limbs. Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural.
 ```
 
 Run:
