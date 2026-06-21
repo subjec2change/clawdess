@@ -82,7 +82,7 @@ Run:
 
 ```bash
 python3 {baseDir}/scripts/clawdess.py photo \
-  --provider "FAL" \
+  --provider "PROVIDER" \
   --prompt "..." \
   --image "<reference image URL from IDENTITY.md>"
 ```
@@ -102,7 +102,7 @@ Run:
 
 ```bash
 python3 {baseDir}/scripts/clawdess.py video \
-  --provider "FAL" \
+  --provider "PROVIDER" \
   --prompt "She slowly ..., then ..., gradually ..., finally ..." \
   --image "<photo output URL or user-provided image URL>"
 ```
@@ -121,6 +121,6 @@ Run:
 
 ```bash
 python3 {baseDir}/scripts/clawdess.py voice \
-  --provider "ALIYUN" \
+  --provider "PROVIDER" \
   --prompt "..."
 ```
