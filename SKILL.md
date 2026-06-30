@@ -67,6 +67,14 @@ Rules:
 - Avoid anatomy drift: one body part gets one job, one eye direction, one base pose, and no conflicting hand/phone/body clauses. Never produce extra hands, arms, legs, feet, or fingers.
 - If a phone is visible, include phone model/color from `IDENTITY.md` when available.
 
+Detail each element (be specific, not generic — but keep it candid, never studio/8K/cinematic):
+
+- Hair: base length, color, and texture from `IDENTITY.md` (do not change them). Then add styling detail — how it is worn now (down, half-up, tied), parting, root volume, where it falls (over one shoulder, behind the back), face-framing strands, and finish (glossy, soft, slightly messy) consistent with the scene's lighting.
+- Outfit, layer by layer: for each garment give cut + fit + fabric + color + length. Top (neckline, sleeves, how it drapes, where it ends). Inner/base layer if any. Bottom (rise, length, fabric) or the one-piece. Footwear (style, color, material, heel height, straps) or barefoot. Keep every layer self-consistent and weather/time appropriate.
+- Accessories: list only what `IDENTITY.md` allows — jewelry (specific pieces), nails (shape + color), eyewear, watch, bag, phone (model + color). Give material and placement (which wrist, which hand). Add nothing it does not list; drop nothing it requires.
+- Pose: exactly ONE pose. Specify body orientation and weight (leaning, seated, walking), what each hand does (one job per hand), leg/foot position, head tilt, and gaze direction. State where the phone is. Never offer pose variants or alternates in the same prompt.
+- Scene + props: specific location with named surfaces and architecture (mirror, doorway, café table, stairs), foreground and background elements, and the in-hand props. Tie lighting to the current time of day — name the light source and its direction (window light, warm street lamps, overhead).
+
 Photo types:
 
 - Mirror selfie: right in front of mirror with natural locationl; outfit view; phone visible.
@@ -76,7 +84,7 @@ Photo types:
 Template:
 
 ```text
-Render image of this person, [complete outfit: top + bottom + footwear, or one-piece + footwear]. [framing] in [specific location], [time of day], [lighting matching the time], [single candid action/pose with one job per body part], [body figure from IDENTITY.md], [accessories from IDENTITY.md, or "no extra accessories"], [hairstyle], [makeup], [specific expression]. Natural anatomy: exactly two hands, two arms, two legs, two feet, correct number of fingers; no extra or missing limbs. Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural.
+Render image of this person, [top: cut + fit + fabric + color + neckline/sleeves/length] [over inner/base layer if any], [bottom: rise + length + fabric + color, or one-piece], [footwear: style + color + material + heel/straps, or barefoot]. [framing] in [specific location with named surfaces/architecture and fore/background elements], [time of day], [lighting matching the time: named source + direction], [single candid pose: body orientation + weight, what each hand does, leg/foot position, head tilt, gaze, where the phone is], [body figure from IDENTITY.md], [accessories from IDENTITY.md with material + placement, or "no extra accessories"], [hair: length + color + texture from IDENTITY.md, plus how it is worn now, parting, where it falls, face-framing strands, finish], [makeup], [specific expression]. Natural anatomy: exactly two hands, two arms, two legs, two feet, correct number of fingers; no extra or missing limbs. Do not change the face, facial structure, identity, or body details; match the skin tone and visible skin color to the identity/reference image so the result looks natural.
 ```
 
 Run:
