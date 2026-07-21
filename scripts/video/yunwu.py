@@ -8,7 +8,7 @@ from common import api_post, extract_url, poll_for_url
 
 DEFAULT_URL = os.environ.get("CLAWDESS_YUNWU_VIDEO_URL", "https://yunwu.ai/v1/video/generations")
 DEFAULT_MODEL = os.environ.get("CLAWDESS_YUNWU_VIDEO_MODEL", "wan2.2-i2v")
-DEFAULT_DURATION = int(os.environ.get("CLAWDESS_YUNWU_VIDEO_DURATION", "15"))
+DEFAULT_DURATION = 15
 
 
 def _sync_url_from_body(body):
