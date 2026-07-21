@@ -67,12 +67,16 @@ The `--channel` and `--target` flags are optional — omit them to generate medi
 |------|----------|-------|---------|
 | Photo | FAL | Bytedance Seedream 4.5 | Yes |
 | Photo | HUOSHANYUN | Doubao Seedream 4.5 | |
+| Photo | OPENAI | GPT Image 2 | |
 | Photo | XAI | Grok Imagine Image | |
+| Photo | YUNWU | gpt-image-1 (configurable) | |
 | Video | FAL | Wan v2.2 | Yes |
 | Video | XAI | Grok Imagine Video | |
+| Video | YUNWU | wan2.1-i2v-14b-720p (configurable) | |
 | Voice | ALIYUN | Qwen3-TTS-Flash | Yes |
 | Voice | ELEVENLABS | Eleven Multilingual v2 | |
 | Voice | ZAI | GLM-TTS | |
+| Voice | YUNWU | tts-1 / alloy (configurable) | |
 
 List installed providers:
 
@@ -86,7 +90,31 @@ Select a provider with `--provider`:
 python3 scripts/clawdess.py photo --provider HUOSHANYUN ...
 python3 scripts/clawdess.py video --provider XAI ...
 python3 scripts/clawdess.py voice --provider ZAI ...
+python3 scripts/clawdess.py photo --provider YUNWU ...
+python3 scripts/clawdess.py video --provider YUNWU ...
+python3 scripts/clawdess.py voice --provider YUNWU ...
 ```
+
+### YUNWU Provider
+
+[yunwu.ai](https://yunwu.ai) is an OpenAI-compatible API gateway that proxies
+200+ models (OpenAI, Anthropic, Google Gemini, Seedream, and more) behind a
+single API key. See the [yunwu.ai API docs](https://yunwu.apifox.cn/) for
+available models and endpoints.
+
+Use your yunwu.ai token as the API key (e.g. `CLAWDESS_PHOTO_API`).
+
+Configurable environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAWDESS_YUNWU_IMAGE_MODEL` | `gpt-image-1` | Image model for photo generation |
+| `CLAWDESS_YUNWU_IMAGE_SIZE` | `1024x1024` | Image output size |
+| `CLAWDESS_YUNWU_IMAGE_QUALITY` | `high` | Image output quality |
+| `CLAWDESS_YUNWU_VIDEO_URL` | `https://yunwu.ai/v1/video/generations` | Video generation endpoint |
+| `CLAWDESS_YUNWU_VIDEO_MODEL` | `wan2.1-i2v-14b-720p` | Video model |
+| `CLAWDESS_YUNWU_TTS_MODEL` | `tts-1` | TTS model for voice generation |
+| `CLAWDESS_YUNWU_VOICE` | `alloy` | Voice name for TTS |
 
 ### Adding a Provider
 
