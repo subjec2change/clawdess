@@ -28,15 +28,15 @@ git clone https://github.com/xwings/clawdess ~/.openclaw/skills/clawdess
 
 ### API Keys
 
-Set your API keys as environment variables:
+The default provider for all media types is **YUNWU** ([yunwu.ai](https://yunwu.ai) — an OpenAI-compatible gateway). Set a single API key for all three media types:
 
 ```bash
-export CLAWDESS_PHOTO_API="your-photo-api-key"
-export CLAWDESS_VIDEO_API="your-video-api-key"
-export CLAWDESS_VOICE_API="your-voice-api-key"
+export CLAWDESS_PHOTO_API="your-yunwu-api-key"
+export CLAWDESS_VIDEO_API="your-yunwu-api-key"
+export CLAWDESS_VOICE_API="your-yunwu-api-key"
 ```
 
-Alternatively, pass them per-command with `--api`.
+Alternatively, pass them per-command with `--api`. To use a different provider, pass `--provider` (see [Providers](#providers) below).
 
 ## Usage
 
@@ -65,12 +65,16 @@ The `--channel` and `--target` flags are optional — omit them to generate medi
 
 | Type | Provider | Model | Default |
 |------|----------|-------|---------|
-| Photo | FAL | Bytedance Seedream 4.5 | Yes |
+| Photo | YUNWU | GPT Image 1 (via yunwu.ai) | Yes |
+| Photo | FAL | Bytedance Seedream 4.5 | |
 | Photo | HUOSHANYUN | Doubao Seedream 4.5 | |
 | Photo | XAI | Grok Imagine Image | |
-| Video | FAL | Wan v2.2 | Yes |
+| Photo | OPENAI | GPT Image 2 | |
+| Video | YUNWU | Kling v2 Master (via yunwu.ai) | Yes |
+| Video | FAL | Wan v2.2 | |
 | Video | XAI | Grok Imagine Video | |
-| Voice | ALIYUN | Qwen3-TTS-Flash | Yes |
+| Voice | YUNWU | TTS-1 (via yunwu.ai) | Yes |
+| Voice | ALIYUN | Qwen3-TTS-Flash | |
 | Voice | ELEVENLABS | Eleven Multilingual v2 | |
 | Voice | ZAI | GLM-TTS | |
 
@@ -80,12 +84,12 @@ List installed providers:
 python3 scripts/clawdess.py providers
 ```
 
-Select a provider with `--provider`:
+Select a provider with `--provider` (YUNWU is used when omitted):
 
 ```bash
-python3 scripts/clawdess.py photo --provider HUOSHANYUN ...
+python3 scripts/clawdess.py photo --provider FAL ...
 python3 scripts/clawdess.py video --provider XAI ...
-python3 scripts/clawdess.py voice --provider ZAI ...
+python3 scripts/clawdess.py voice --provider ALIYUN ...
 ```
 
 ### Adding a Provider
@@ -99,13 +103,17 @@ scripts/
   clawdess.py          # CLI entry point
   common.py            # Shared helpers (API calls, OpenClaw send, polling)
   photo/               # Photo providers
+    yunwu.py           # (default)
     fal.py
     huoshanyun.py
+    openai.py
     xai.py
   video/               # Video providers
+    yunwu.py           # (default)
     fal.py
     xai.py
   voice/               # Voice providers
+    yunwu.py           # (default)
     aliyun.py
     elevenlabs.py
     zai.py

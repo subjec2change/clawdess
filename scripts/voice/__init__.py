@@ -15,7 +15,7 @@ def run_voice(args):
     if not args.prompt:
         sys.exit("Error: --prompt is required.")
 
-    provider_name = (args.provider or "ALIYUN").upper()
+    provider_name = (args.provider or "YUNWU").upper()
     if provider_name not in PROVIDERS:
         sys.exit(f"Unknown voice provider: {provider_name}. Available: {', '.join(PROVIDERS)}")
 
