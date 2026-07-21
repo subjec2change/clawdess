@@ -18,7 +18,7 @@ All media can be delivered to WhatsApp, Telegram, Discord, Slack, Signal, and MS
 Install as an OpenClaw skill:
 
 ```bash
-git clone https://github.com/xwings/clawdess ~/.openclaw/skills/clawdess
+git clone https://github.com/subjec2change/clawdess ~/.openclaw/skills/clawdess
 ```
 
 ### Requirements
@@ -68,6 +68,7 @@ The `--channel` and `--target` flags are optional — omit them to generate medi
 | Photo | YUNWU | OpenAI-compatible gateway (`gpt-image-1` by default) | Yes |
 | Photo | FAL | Bytedance Seedream 4.5 | |
 | Photo | HUOSHANYUN | Doubao Seedream 4.5 | |
+| Photo | OPENAI | OpenAI Images Edit API (`gpt-image-2` by default) | |
 | Photo | XAI | Grok Imagine Image | |
 | Video | YUNWU | OpenAI-compatible gateway (model via env) | Yes |
 | Video | FAL | Wan v2.2 | |
@@ -105,13 +106,33 @@ export CLAWDESS_YUNWU_TTS_MODEL="tts-1"
 export CLAWDESS_YUNWU_VOICE="alloy"
 ```
 
+OPENAI provider environment variables:
+
+```bash
+export CLAWDESS_OPENAI_IMAGE_MODEL="gpt-image-2"
+export CLAWDESS_OPENAI_IMAGE_SIZE="1024x1024"
+export CLAWDESS_OPENAI_IMAGE_QUALITY="high"
+```
+
 ### Adding a Provider
 
 Create a `.py` file in the corresponding `scripts/photo/`, `scripts/video/`, or `scripts/voice/` directory with a `generate()` function. It will be discovered automatically.
 
+## Agents
+
+The `agents/` directory ships ready-to-use OpenClaw agent personas. Each agent bundles its own persona and behavior files (e.g. `SOUL.md`, `HEARTBEAT.md`):
+
+- **girlfriend** — the flagship companion persona (`SOUL.md`, `HEARTBEAT.md`).
+- **personal-assistant** — a helpful assistant persona.
+- **coder** — a coding-focused persona.
+
 ## Project Structure
 
 ```
+agents/
+  coder/               # Coding-focused agent persona
+  girlfriend/          # Companion agent persona (SOUL.md, HEARTBEAT.md)
+  personal-assistant/  # Assistant agent persona
 scripts/
   clawdess.py          # CLI entry point
   common.py            # Shared helpers (API calls, OpenClaw send, polling)
@@ -130,6 +151,8 @@ scripts/
     aliyun.py
     elevenlabs.py
     zai.py
+img/                   # Demo/media assets
+SKILL.md               # OpenClaw skill definition
 ```
 
 ## License
