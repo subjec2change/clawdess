@@ -18,7 +18,7 @@ def run_video(args):
     if not api_key:
         sys.exit("Error: --api or CLAWDESS_VIDEO_API required.")
 
-    provider_name = (args.provider or "FAL").upper()
+    provider_name = (args.provider or "YUNWU").upper()
     if provider_name not in PROVIDERS:
         sys.exit(f"Unknown video provider: {provider_name}. Available: {', '.join(PROVIDERS)}")
 

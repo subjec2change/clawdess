@@ -65,12 +65,15 @@ The `--channel` and `--target` flags are optional — omit them to generate medi
 
 | Type | Provider | Model | Default |
 |------|----------|-------|---------|
-| Photo | FAL | Bytedance Seedream 4.5 | Yes |
+| Photo | YUNWU | OpenAI-compatible gateway (`gpt-image-1` by default) | Yes |
+| Photo | FAL | Bytedance Seedream 4.5 | |
 | Photo | HUOSHANYUN | Doubao Seedream 4.5 | |
 | Photo | XAI | Grok Imagine Image | |
-| Video | FAL | Wan v2.2 | Yes |
+| Video | YUNWU | OpenAI-compatible gateway (model via env) | Yes |
+| Video | FAL | Wan v2.2 | |
 | Video | XAI | Grok Imagine Video | |
-| Voice | ALIYUN | Qwen3-TTS-Flash | Yes |
+| Voice | YUNWU | OpenAI-compatible gateway (`tts-1` + `alloy` by default) | Yes |
+| Voice | ALIYUN | Qwen3-TTS-Flash | |
 | Voice | ELEVENLABS | Eleven Multilingual v2 | |
 | Voice | ZAI | GLM-TTS | |
 
@@ -80,12 +83,26 @@ List installed providers:
 python3 scripts/clawdess.py providers
 ```
 
+`YUNWU` is now the default provider for photo, video, and voice. Other providers remain available as opt-in via `--provider`.
+
 Select a provider with `--provider`:
 
 ```bash
 python3 scripts/clawdess.py photo --provider HUOSHANYUN ...
 python3 scripts/clawdess.py video --provider XAI ...
 python3 scripts/clawdess.py voice --provider ZAI ...
+```
+
+YUNWU is an OpenAI-compatible gateway service. Docs: https://yunwu.apifox.cn/
+
+YUNWU provider environment variables:
+
+```bash
+export CLAWDESS_YUNWU_IMAGE_MODEL="gpt-image-1"
+export CLAWDESS_YUNWU_VIDEO_URL="https://yunwu.ai/v1/video/generations"
+export CLAWDESS_YUNWU_VIDEO_MODEL="wan2.2-i2v"
+export CLAWDESS_YUNWU_TTS_MODEL="tts-1"
+export CLAWDESS_YUNWU_VOICE="alloy"
 ```
 
 ### Adding a Provider
@@ -99,13 +116,17 @@ scripts/
   clawdess.py          # CLI entry point
   common.py            # Shared helpers (API calls, OpenClaw send, polling)
   photo/               # Photo providers
+    yunwu.py
     fal.py
     huoshanyun.py
+    openai.py
     xai.py
   video/               # Video providers
+    yunwu.py
     fal.py
     xai.py
   voice/               # Voice providers
+    yunwu.py
     aliyun.py
     elevenlabs.py
     zai.py

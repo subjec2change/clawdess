@@ -9,9 +9,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 DEFAULT_PROVIDERS = {
-    "photo": "FAL",
-    "video": "FAL",
-    "voice": "ALIYUN",
+    "photo": "YUNWU",
+    "video": "YUNWU",
+    "voice": "YUNWU",
 }
 
 
