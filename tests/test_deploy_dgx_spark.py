@@ -266,3 +266,370 @@ acquire_models "{root}" "{config}" "juggernaut-xl-v10" "piper-voice" false "{sta
     assert result.returncode != 0
     state = json.loads((state_root / "state" / "deployment-state.json").read_text())
     assert state["state"] == "failed" and state["phase"] == "models"
+
+def test_library_has_no_top_level_side_effects(tmp_path):
+    marker = tmp_path / "marker"
+    result = bash(f"test ! -e {marker}")
+    assert result.returncode == 0, result.stderr
+
+
+def test_probe_seams_are_overridable(tmp_path):
+    script = f"""
+    clawdess_command_v() {{ printf '/fake/%s\\n' "$1"; }}
+    clawdess_nvidia_smi() {{ printf 'GPU [N/A]\\n'; }}
+    clawdess_python() {{ printf 'python-probe\\n'; }}
+    clawdess_docker() {{ printf 'docker-probe\\n'; }}
+    clawdess_curl() {{ printf 'curl-probe\\n'; }}
+    clawdess_df() {{ printf 'df-probe\\n'; }}
+    probe_command python
+    probe_nvidia_smi
+    probe_python --version
+    probe_docker info
+    probe_curl --head https://example.invalid
+    probe_df -Pk {tmp_path}
+    """
+    result = bash(script)
+    assert result.returncode == 0, result.stderr
+    assert "/fake/python" in result.stdout
+    assert "GPU [N/A]" in result.stdout
+    assert "python-probe" in result.stdout
+    assert "docker-probe" in result.stdout
+    assert "curl-probe" in result.stdout
+    assert "df-probe" in result.stdout
+
+
+def test_json_write_is_atomic_and_complete(tmp_path):
+    destination = tmp_path / "state" / "deployment-state.json"
+    destination.parent.mkdir()
+    result = bash(
+        f"payload='{{\\\"status\\\":\\\"planned\\\"}}'; json_write_atomic {destination} \"$payload\""
+    )
+    assert result.returncode == 0, result.stderr
+    assert destination.read_text() == '{"status":"planned"}\n'
+    assert list(destination.parent.glob("*.tmp.*")) == []
+
+
+def test_redaction_replaces_api_tokens_and_secret_file_values():
+    env = os.environ.copy()
+    env.update({
+        "CLAWDESS_FAL_API": "fal-secret",
+        "HF_TOKEN": "hf-secret",
+        "CLAWDESS_HF_TOKEN_FILE": "/run/secrets/hf-token",
+    })
+    result = bash(
+        f"redact_text 'fal-secret hf-secret /run/secrets/hf-token safe'",
+        env=env,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "<REDACTED> <REDACTED> <REDACTED> safe"
+
+
+@pytest.mark.parametrize("args", [["--help"], ["--non-interactive"]])
+def test_cli_contract_is_observable(args):
+    result = subprocess.run(
+        ["bash", str(CLI), *args], cwd=ROOT, text=True,
+        capture_output=True, check=False,
+    )
+    if args == ["--help"]:
+        assert result.returncode == 0
+        assert "Usage:" in result.stdout
+    else:
+        assert result.returncode != 0
+        assert "profile" in (result.stdout + result.stderr).lower()
+
+
+def test_dry_run_is_observable_without_real_services(tmp_path):
+    env = os.environ.copy()
+    env["CLAWDESS_DEPLOY_ROOT"] = str(tmp_path / "deployment")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    nvidia_smi = fake_bin / "nvidia-smi"
+    nvidia_smi.write_text("#!/usr/bin/env bash\nprintf 'Fake GPU, 1.0, 8.9\\n'\n")
+    nvidia_smi.chmod(0o755)
+    env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    result = subprocess.run(
+        ["bash", str(CLI), "--profile", "minimal", "--image-model",
+         "juggernaut-xl-v10", "--tts-backend", "piper", "--dry-run",
+         "--non-interactive"], cwd=ROOT, env=env, text=True,
+        capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    output = result.stdout + result.stderr
+    assert "dry-run" in output.lower()
+    assert "would" in output.lower() or "planned" in output.lower()
+    logs = list((tmp_path / "deployment" / "logs").glob("deploy-*.log"))
+    assert len(logs) == 1
+    assert "state=planned" in logs[0].read_text()
+
+
+def test_validation_failure_is_logged_before_exit(tmp_path):
+    env = os.environ.copy()
+    root = tmp_path / "deployment"
+    env["CLAWDESS_DEPLOY_ROOT"] = str(root)
+    result = subprocess.run(
+        ["bash", str(CLI), "--non-interactive"], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 2
+    logs = list((root / "logs").glob("deploy-*.log"))
+    assert len(logs) == 1
+    content = logs[0].read_text()
+    assert "phase=validation" in content
+    assert "status=2" in content
+
+
+def test_required_discovery_probe_failure_is_logged(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    nvidia_smi = fake_bin / "nvidia-smi"
+    nvidia_smi.write_text("#!/usr/bin/env bash\nexit 17\n")
+    nvidia_smi.chmod(0o755)
+    env = os.environ.copy()
+    root = tmp_path / "deployment"
+    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": f"{fake_bin}:/usr/bin:/bin"})
+    result = subprocess.run(
+        ["bash", str(CLI), "--profile", "minimal", "--image-model",
+         "juggernaut-xl-v10", "--tts-backend", "piper", "--dry-run",
+         "--non-interactive"], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 2
+    assert "nvidia-smi probe failed" in (result.stdout + result.stderr)
+    logs = list((root / "logs").glob("deploy-*.log"))
+    assert len(logs) == 1
+    assert "phase=discovery" in logs[0].read_text()
+
+
+def test_err_trap_records_post_log_failure_metadata(tmp_path):
+    log = tmp_path / "run.log"
+    result = subprocess.run(
+        ["bash", "-c", f"source {CLI}; RUN_LOG={log!s}; PHASE=execution; false"],
+        cwd=ROOT, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert "phase=execution" in output
+    assert "status=1" in output
+    assert "command=false" in output
+    content = log.read_text()
+    assert "phase=execution" in content
+    assert "status=1" in content
+    assert "command=false" in content
+
+
+def test_err_trap_redacts_secret_like_command_context(tmp_path):
+    log = tmp_path / "run.log"
+    env = os.environ.copy()
+    env["CLAWDESS_FAL_API"] = "super-secret"
+    result = subprocess.run(
+        ["bash", "-c", f"source {CLI}; RUN_LOG={log!s}; PHASE=execution; "
+         "on_error 17 42 'curl --header Authorization: ***'"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0
+    output = result.stdout + result.stderr
+    assert "line=42" in output
+    assert "status=17" in output
+    assert "super-secret" not in output
+    assert "<REDACTED>" in output
+    assert "phase=execution" in log.read_text()
+
+
+def test_empty_secret_environment_does_not_emit_nested_redaction_error(tmp_path):
+    env = os.environ.copy()
+    for key in list(env):
+        if key.startswith("CLAWDESS_"):
+            env.pop(key)
+    env["CLAWDESS_DEPLOY_ROOT"] = str(tmp_path / "deployment")
+    result = subprocess.run(
+        ["bash", str(CLI), "--non-interactive"], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 2
+    assert "compgen -A variable CLAWDESS_" not in output
+    assert "--profile is required" in output
+
+
+def test_dry_run_reset_is_rejected_without_mutation(tmp_path):
+    root = tmp_path / "deployment"
+    root.mkdir()
+    marker = root / "marker"
+    marker.write_text("keep")
+    env = os.environ.copy()
+    env["CLAWDESS_DEPLOY_ROOT"] = str(root)
+    result = subprocess.run(
+        ["bash", str(CLI), "--dry-run", "--reset", "--yes"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 2
+    assert marker.read_text() == "keep"
+    assert "cannot be combined" in (result.stdout + result.stderr)
+
+
+def test_reset_refuses_symlink_root_without_touching_target(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    marker = target / "marker"
+    marker.write_text("keep")
+    root = tmp_path / "deployment-link"
+    root.symlink_to(target, target_is_directory=True)
+    env = os.environ.copy()
+    env["CLAWDESS_DEPLOY_ROOT"] = str(root)
+    result = subprocess.run(
+        ["bash", str(CLI), "--reset", "--yes"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 2
+    assert root.is_symlink()
+    assert marker.read_text() == "keep"
+    assert "symlink" in (result.stdout + result.stderr).lower()
+
+
+def test_reset_refuses_symlink_parent_without_touching_target(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "marker"
+    marker.write_text("keep")
+    parent = tmp_path / "parent-link"
+    parent.symlink_to(outside, target_is_directory=True)
+    root = parent / "deployment"
+    env = os.environ.copy()
+    env["CLAWDESS_DEPLOY_ROOT"] = str(root)
+    result = subprocess.run(
+        ["bash", str(CLI), "--reset", "--yes"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 2
+    assert marker.read_text() == "keep"
+    assert parent.is_symlink()
+    assert "symlink" in (result.stdout + result.stderr).lower()
+
+
+@pytest.mark.parametrize("option", ["--model-root", "--verbose"])
+def test_plan_cli_options_are_accepted(option, tmp_path):
+    env = os.environ.copy()
+    env["CLAWDESS_DEPLOY_ROOT"] = str(tmp_path / "deployment")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    nvidia_smi = fake_bin / "nvidia-smi"
+    nvidia_smi.write_text("#!/usr/bin/env bash\nprintf 'Fake GPU, 1.0, 8.9\\n'\n")
+    nvidia_smi.chmod(0o755)
+    env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    args = ["bash", str(CLI), "--profile", "minimal", "--image-model",
+            "juggernaut-xl-v10", "--tts-backend", "piper", option]
+    if option == "--model-root":
+        args.append(str(tmp_path / "models"))
+    args += ["--dry-run", "--non-interactive"]
+    result = subprocess.run(args, cwd=ROOT, env=env, text=True,
+                            capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    if option == "--verbose":
+        assert "verbose:" in (result.stdout + result.stderr)
+
+
+def test_wait_for_comfyui_readiness_timeout(tmp_path):
+    """ComfyUI readiness times out when no server is listening."""
+    script = (
+        f""
+        "wait_for_comfyui_readiness http://127.0.0.1:19999 5\n"
+    )
+    result = bash(script)
+    assert result.returncode != 0  # timeout, no server
+    assert "readiness: comfyui not ready" in result.stdout
+
+
+def test_smoke_test_comfyui_starts_and_produces_output(tmp_path):
+    """smoke_test_comfyui starts ComfyUI, submits workflow, and produces output."""
+    deploy_root = tmp_path / "deployment"
+    comfyui_path = tmp_path / "comfyui"
+    comfyui_path.mkdir()
+    (comfyui_path / "main.py").write_text("#!/usr/bin/env python3\nprint('ComfyUI')\n")
+    (comfyui_path / "main.py").chmod(0o755)
+    venv_python = comfyui_path / "main.py"
+
+    # Create the fake output file the smoke test checks for
+    smoke_dir = deploy_root / "artifacts" / "comfyui-output" / "images" / "smoke"
+    smoke_dir.mkdir(parents=True)
+    (smoke_dir / "smoke_00001_abc123.png").write_bytes(b"FAKE_PNG")
+
+    script = f"""
+
+curl() {{
+    local url=""
+    local show_header=true
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -s|--silent) show_header=false ;;
+            http://*|https://*) url="$1" ;;
+        esac
+        shift
+    done
+
+    if [[ "$show_header" == true ]]; then
+        echo "HTTP/1.1 200 OK"
+    fi
+    case "$url" in
+        */api/system_stats)
+            printf '200'
+            ;;
+        */prompt)
+            printf '{{"prompt_id":"abc123","number":0,"node_errors":{{}}}}'
+            ;;
+        */history/abc123)
+            printf '{{"abc123":{{"status":{{"status_str":"success"}}}}}}'
+            ;;
+        *)
+            printf '200'
+            ;;
+    esac
+}}
+
+smoke_test_comfyui "{comfyui_path}" "{venv_python}" "{deploy_root}"
+"""
+    result = bash(script)
+    assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
+    assert "smoke: ComfyUI smoke test passed" in result.stdout
+
+
+
+def test_smoke_test_piper_generates_audio(tmp_path):
+    """smoke_test_piper actually generates audio instead of just checking --help."""
+    deploy_root = tmp_path / "deployment"
+
+    # Create a fake model file and companion config
+    model_file = deploy_root / "models" / "en_US-librittsr-medium.onnx"
+    model_file.parent.mkdir(parents=True)
+    model_file.write_bytes(b"FAKE_MODEL_DATA")
+    config_file = deploy_root / "models" / "en_US-librittsr-medium.onnx.json"
+    config_file.write_text('{"speaker_ids":{},"preprocess":{"phonemize":false}}')
+
+    # Create a fake piper binary that writes WAV data to the output file
+    piper_dir = tmp_path / "piper_bin"
+    piper_dir.mkdir()
+    piper_exe = piper_dir / "piper"
+    piper_exe.write_text(
+        '#!/usr/bin/env bash\n'
+        'while [[ $# -gt 0 ]]; do\n'
+        '  case "$1" in\n'
+        '    --output) outfile="$2"; shift 2 ;;\n'
+        '    --model) shift 2 ;;\n'
+        '    --config) shift 2 ;;\n'
+        '    *) shift ;;\n'
+        '  esac\n'
+        'done\n'
+        'printf "WAV_DATA" > "$outfile"\n'
+    )
+    piper_exe.chmod(0o755)
+
+    script = (
+        f""
+        f"piper() {{ {piper_exe} \"$@\"; }}\n"
+        f"smoke_test_piper {model_file} {deploy_root}\n"
+    )
+    result = bash(script)
+    assert result.returncode == 0, result.stdout + result.stderr
+    # smoke_test_piper creates a temp dir under deploy_root (artifacts.XXXXXX/smoke_test.wav)
+    smoke_wavs = list((deploy_root).glob("**/smoke_test.wav"))
+    assert len(smoke_wavs) >= 1, f"Expected at least one smoke_test.wav under {deploy_root}"
+    assert smoke_wavs[0].stat().st_size > 0, f"Expected smoke_test.wav to be non-empty"

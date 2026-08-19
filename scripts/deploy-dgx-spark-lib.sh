@@ -510,29 +510,174 @@ install_piper_tts() {
 # Smoke test helpers
 # ---------------------------------------------------------------------------
 
-smoke_test_comfyui() {
-    local comfyui_path="${1:?comfyui path required}" venv_python="${2:?venv python required}"
+# ---------------------------------------------------------------------------
+# smoke_test_comfyui — Starts ComfyUI, submits workflow, verifies output
+# ---------------------------------------------------------------------------
 
-    # Run a simple health check - import ComfyUI
-    if "$venv_python" -c "import sys; sys.path.insert(0, '$comfyui_path'); import nodes" 2>/dev/null; then
-        printf 'smoke: comfyui import OK\n'
+# smoke_test_comfyui COMFYUI_PATH VENV_PYTHON DEPLOY_ROOT
+# Starts ComfyUI in background on port 8188, waits for readiness,
+# submits a minimal 4-node workflow, polls for completion, and verifies
+# that an output image was produced.
+# Returns 0 on success, 1 on failure.
+smoke_test_comfyui() {
+    local comfyui_path="${1:?comfyui path required}"
+    local venv_python="${2:?venv python required}"
+    local deploy_root="${3:?deploy root required}"
+
+    # 1. Start ComfyUI in background on port 8188
+    local comfyui_log="$deploy_root/logs/comfyui-smoke.log"
+    local comfyui_pid_file="$deploy_root/run/comfyui.pid"
+    mkdir -p -- "$deploy_root/logs" "$deploy_root/run"
+    nohup "$venv_python" "$comfyui_path/main.py" --port 8188 > "$comfyui_log" 2>&1 &
+    local comfyui_pid=$!
+    printf '%s\n' "$comfyui_pid" > "$comfyui_pid_file"
+    printf 'smoke: started ComfyUI (pid %d)\n' "$comfyui_pid"
+
+    # 2. Wait for ComfyUI to become ready
+    if ! wait_for_comfyui_readiness "http://127.0.0.1:8188" 60; then
+        printf 'smoke: ComfyUI did not become ready\n' >&2
+        kill "$comfyui_pid" 2>/dev/null || true
+        return 1
+    fi
+
+    # 3. Submit a minimal workflow
+    local workflow_json='{"prompt":{"1":{"class_type":"EmptyLatentImage","inputs":{"batch_size":1,"height":64,"width":64}},"2":{"class_type":"KSampler","inputs":{"model":[1],"positive":[3],"negative":[3],"latent_image":[1],"seed":42,"steps":2,"cfg":1}},"3":{"class_type":"VAEDecode","inputs":{"samples":[2],"vae":[1]}},"4":{"class_type":"SaveImage","inputs":{"filename_prefix":"smoke","images":[3]}}}}'
+    local curl_output
+    if ! curl_output=$(curl --fail --silent --max-time 30 -X POST "http://127.0.0.1:8188/prompt" -H 'Content-Type: application/json' -d "$workflow_json" 2>&1); then
+        printf 'smoke: workflow submission failed: %s\n' "$curl_output" >&2
+        kill "$comfyui_pid" 2>/dev/null || true
+        return 1
+    fi
+
+    # Extract prompt_id from response
+    local prompt_id
+    prompt_id=$(printf '%s\n' "$curl_output" | python3 -c "import json,sys; print(json.load(sys.stdin).get('prompt_id',''))" 2>/dev/null)
+    if [[ -z "$prompt_id" ]]; then
+        printf 'smoke: no prompt_id in response\n' >&2
+        kill "$comfyui_pid" 2>/dev/null || true
+        return 1
+    fi
+
+    # Poll for completion via history endpoint
+    local max_polls=30
+    local i status
+    for ((i=0; i<max_polls; i++)); do
+        sleep 2
+        local history_json
+        history_json=$(curl --silent --max-time 10 "http://127.0.0.1:8188/history/$prompt_id" 2>/dev/null) || true
+        if [[ -n "$history_json" ]]; then
+            status=$(printf '%s\n' "$history_json" | python3 -c "
+import json,sys
+data = json.load(sys.stdin)
+if '$prompt_id' in data:
+    print(data['$prompt_id'].get('status',{}).get('status_str','pending'))
+else:
+    print('pending')
+" 2>/dev/null)
+            if [[ "$status" == "success" ]]; then
+                break
+            fi
+            if [[ "$status" == "error" ]]; then
+                printf 'smoke: workflow finished with error\n' >&2
+                kill "$comfyui_pid" 2>/dev/null || true
+                return 1
+            fi
+        fi
+    done
+
+    # 4. Verify output was produced
+    local smoke_output="$deploy_root/artifacts/comfyui-output/images/smoke"
+    local found_output
+    found_output=$(ls "$smoke_output"/*.png "$smoke_output"/*.jpg "$smoke_output"/*.webp 2>/dev/null | head -1) || true
+    if [[ -n "$found_output" ]]; then
+        printf 'smoke: ComfyUI smoke test passed (workflow produced output)\n'
+        kill "$comfyui_pid" 2>/dev/null || true
         return 0
     else
-        printf 'smoke: comfyui import failed\n' >&2
+        printf 'smoke: ComfyUI smoke test failed (no output produced)\n' >&2
+        kill "$comfyui_pid" 2>/dev/null || true
         return 1
     fi
 }
 
 smoke_test_piper() {
-    local model_path="${1:?model path required}"
+    local model_path=${1:?model path required}
+    local deploy_root=${2:?deploy root required}
 
-    if command piper --help >/dev/null 2>&1; then
-        printf 'smoke: piper binary available\n'
-        return 0
-    else
-        printf 'smoke: piper binary not found\n' >&2
+    # Validate model file exists
+    if [[ ! -f "$model_path" ]]; then
+        printf 'smoke: model not found: %s\n' "$model_path" >&2
         return 1
     fi
+
+    local output_dir
+    output_dir=$(mktemp -d -p "$deploy_root" "artifacts.XXXXXX")
+    local output_file="${output_dir}/smoke_test.wav"
+
+    # Attempt 1: direct --model invocation
+    if piper --model "$model_path" --output "$output_file" <<< "Hello from Clawdess on DGX Spark." 2>/dev/null; then
+        if [[ -f "$output_file" && -s "$output_file" ]]; then
+            printf 'smoke: piper generated %d bytes\n' "$output_file" >&2
+            return 0
+        fi
+    fi
+
+    # Attempt 2: with --config using the companion .json file
+    local config_file="${model_path}.json"
+    if [[ -f "$config_file" ]]; then
+        if piper --model "$model_path" --config "$config_file" --output "$output_file" <<< "Hello from Clawdess on DGX Spark." 2>/dev/null; then
+            if [[ -f "$output_file" && -s "$output_file" ]]; then
+                printf 'smoke: piper generated %d bytes (via config)\n' "$output_file" >&2
+                return 0
+            fi
+        fi
+    fi
+
+    printf 'smoke: piper failed to generate audio\n' >&2
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Readiness checks
+# ---------------------------------------------------------------------------
+
+# Wait until ComfyUI's /api/system_stats endpoint returns HTTP 200.
+# Arguments: url timeout (seconds).
+# Returns 0 when ready, 1 on timeout.
+wait_for_comfyui_readiness() {
+    local url=${1:?url required}
+    local timeout=${2:-120}
+    local elapsed=0
+    while (( elapsed < timeout )); do
+        local http_code
+        http_code=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/system_stats" 2>/dev/null) || true
+        if [[ "$http_code" == "200" ]]; then
+            printf 'readiness: comfyui ready after %ds\n' "$elapsed"
+            return 0
+        fi
+        sleep 2
+        elapsed=$(( elapsed + 2 ))
+    done
+    printf 'readiness: comfyui not ready after %ds\n' "$timeout"
+    return 1
+}
+
+# Wait until the piper binary is available on PATH.
+# Argument: timeout (seconds).
+# Returns 0 when ready, 1 on timeout.
+wait_for_tts_ready() {
+    local timeout=${1:-30}
+    local elapsed=0
+    while (( elapsed < timeout )); do
+        if command -v piper >/dev/null 2>&1; then
+            printf 'readiness: tts (piper) ready\n'
+            return 0
+        fi
+        sleep 1
+        elapsed=$(( elapsed + 1 ))
+    done
+    printf 'readiness: tts not ready after %ds\n' "$timeout"
+    return 1
 }
 
 # ---------------------------------------------------------------------------
