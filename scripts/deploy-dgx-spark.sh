@@ -31,6 +31,8 @@ CONFIG="$REPO_ROOT/config/dgx-spark-models.json"
 RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 LOG_FILE="$RUN_LOG"
 PHASE="discovery"
+started_pids=()
+EXIT_CLEANUP_DONE=false
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
     return 0
 fi
@@ -83,6 +85,12 @@ if [[ "$RESET" == true ]]; then
     reset_deployment_root "$DEPLOY_ROOT"; exit $?
 fi
 if [[ "$VERBOSE" == true ]]; then printf 'verbose: deploy-root=%s model-root=%s profile=%s\n' "$DEPLOY_ROOT" "$MODEL_ROOT" "$PROFILE"; fi
+
+# ---------------------------------------------------------------------------
+# Cleanup and PID tracking
+# ---------------------------------------------------------------------------
+
+trap 'do_cleanup; status=$?; trap - ERR; on_error "$status" "$LINENO" "cleanup-exit"' EXIT
 
 # ---------------------------------------------------------------------------
 # Phase 1
@@ -256,20 +264,72 @@ if [[ "$DRY_RUN" == false ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 7: Smoke tests
+# Phase 7: Service startup (ordered)
+# ---------------------------------------------------------------------------
+PHASE="startup"
+printf '=== Phase 7: Service Startup ===\n'
+
+if [[ "$DRY_RUN" == false ]]; then
+    # Start ComfyUI first
+    printf 'startup: starting ComfyUI...\n'
+    nohup "$VENV_PATH/bin/python" "$COMFYUI_PATH/comfyui-runner.py" > "$DEPLOY_ROOT/logs/comfyui.log" 2>&1 &
+    COMFYUI_PID=$!
+    track_pid "$COMFYUI_PID" "comfyui"
+    printf 'startup: ComfyUI started (pid %s)\n' "$COMFYUI_PID"
+
+    # Wait for ComfyUI readiness
+    if ! wait_for_comfyui_readiness "$DEPLOY_ROOT"; then
+        printf 'startup: ComfyUI failed readiness, stopping...\n'
+        kill "$COMFYUI_PID" 2>/dev/null || true
+        rm -f "$DEPLOY_ROOT/run/comfyui.pid"
+        exit 1
+    fi
+    printf 'startup: ComfyUI is ready\n'
+
+    # Start TTS after ComfyUI is ready
+    printf 'startup: starting TTS...\n'
+    nohup "$VENV_PATH/bin/piper" > "$DEPLOY_ROOT/logs/tts.log" 2>&1 &
+    TTS_PID=$!
+    track_pid "$TTS_PID" "tts"
+    printf 'startup: TTS started (pid %s)\n' "$TTS_PID"
+
+    # Wait for TTS readiness
+    if ! wait_for_tts_ready 30; then
+        printf 'startup: TTS failed readiness, stopping services...\n'
+        kill "$TTS_PID" 2>/dev/null || true
+        rm -f "$DEPLOY_ROOT/run/tts.pid"
+        kill "$COMFYUI_PID" 2>/dev/null || true
+        rm -f "$DEPLOY_ROOT/run/comfyui.pid"
+        exit 1
+    fi
+    printf 'startup: TTS is ready\n'
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 8: Smoke tests
 # ---------------------------------------------------------------------------
 PHASE="smoke"
-printf '=== Phase 7: Smoke Tests ===\n'
+printf '=== Phase 8: Smoke Tests ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
     if ! smoke_test_comfyui "$COMFYUI_PATH" "$VENV_PATH/bin/python"; then
         on_error 1 "$LINENO" "ComfyUI import failed"
         exit 1
     fi
+    # Stop services after smoke tests
+    printf 'smoke: stopping services...\n'
+    if [[ -f "$DEPLOY_ROOT/run/tts.pid" ]]; then
+        kill "$(cat "$DEPLOY_ROOT/run/tts.pid")" 2>/dev/null || true
+        rm -f "$DEPLOY_ROOT/run/tts.pid"
+    fi
+    if [[ -f "$DEPLOY_ROOT/run/comfyui.pid" ]]; then
+        kill "$(cat "$DEPLOY_ROOT/run/comfyui.pid")" 2>/dev/null || true
+        rm -f "$DEPLOY_ROOT/run/comfyui.pid"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 8: Generate lifecycle scripts
+# Phase 9: Generate lifecycle scripts
 # ---------------------------------------------------------------------------
 PHASE="lifecycle"
 printf '=== Phase 8: Lifecycle Scripts ===\n'

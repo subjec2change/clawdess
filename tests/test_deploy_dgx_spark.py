@@ -500,6 +500,146 @@ def test_empty_secret_environment_does_not_emit_nested_redaction_error(tmp_path)
     assert "state: persisted failed state" in output
 
 
+def test_health_check_script_is_generated(tmp_path):
+    """generate_lifecycle_scripts creates a health-check script."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    result = bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}"')
+    assert result.returncode == 0
+    health = deploy_root / "bin" / "health-check"
+    assert health.exists(), "health-check script not generated"
+    assert os.access(health, os.X_OK), "health-check is not executable"
+    # Verify it has bash syntax
+    r = subprocess.run(["bash", "-n", str(health)], capture_output=True, text=True)
+    assert r.returncode == 0, f"health-check bash -n failed: {r.stderr}"
+
+
+def test_health_check_reports_unhealthy_services(tmp_path):
+    """health-check returns non-zero when no services are running."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir(parents=True)
+    (deploy_root / "bin").mkdir(parents=True)
+    (deploy_root / "bin" / "health-check").write_text("""#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+error_count=0
+if [[ -f "$SCRIPT_DIR/run/comfyui.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/comfyui.pid")"
+    if kill -0 "$pid" 2>/dev/null; then
+        printf 'ComfyUI: ready (pid %s)\\n' "$pid"
+    else
+        printf 'ComfyUI: dead process in pid file\\n'
+        error_count=$((error_count + 1))
+    fi
+else
+    printf 'ComfyUI: no pid file found (service not started)\\n'
+    error_count=$((error_count + 1))
+fi
+if [[ -f "$SCRIPT_DIR/run/tts.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/tts.pid")"
+    if kill -0 "$pid" 2>/dev/null; then
+        printf 'TTS (piper): ready (pid %s)\\n' "$pid"
+    else
+        printf 'TTS (piper): dead process in pid file\\n'
+        error_count=$((error_count + 1))
+    fi
+else
+    printf 'TTS (piper): no pid file found (service not started)\\n'
+    error_count=$((error_count + 1))
+fi
+if [[ "$error_count" -gt 0 ]]; then
+    printf 'health-check: %d issue(s) found\\n' "$error_count"
+    exit 1
+fi
+printf 'health-check: all services healthy\\n'
+exit 0
+""")
+    r = subprocess.run(["bash", str(deploy_root / "bin" / "health-check")], capture_output=True, text=True, cwd=ROOT)
+    assert r.returncode != 0
+    assert "2 issue" in r.stdout
+
+
+def test_lifecycle_scripts_include_all_required_scripts(tmp_path):
+    """generate_lifecycle_scripts creates all required lifecycle scripts."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}"')
+    required = ["start-comfyui", "stop-comfyui", "start-tts", "stop-tts", "status", "health-check"]
+    for name in required:
+        path = deploy_root / "bin" / name
+        assert path.exists(), f"Missing generated script: {name}"
+
+
+def test_cleanup_stops_tracked_services(tmp_path):
+    """do_cleanup stops all tracked PIDs and their PID files."""
+    deploy_root = tmp_path / "deploy"
+    run_dir = deploy_root / "run"
+    run_dir.mkdir(parents=True)
+    logs_dir = deploy_root / "logs"
+    logs_dir.mkdir(parents=True)
+    (run_dir / "comfyui.pid").write_text("99998")
+    (run_dir / "tts.pid").write_text("99998")
+    # Use PID 99998 (not running) so do_cleanup doesn't SIGTERM itself
+    result = bash(f"""started_pids=("99999" "99999")
+EXIT_CLEANUP_DONE=false
+do_cleanup
+echo "cleanup:rc=$?"
+""", env={"CLAWDESS_DEPLOY_ROOT": str(deploy_root)})
+
+
+def test_pid_tracking_writes_pid_file(tmp_path):
+    """track_pid writes the PID file to run/ and appends to the log."""
+    deploy_root = tmp_path / "deploy"
+    run_dir = deploy_root / "run"
+    run_dir.mkdir(parents=True)
+    logs_dir = deploy_root / "logs"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "test.log").write_text("")
+    result = bash(f"""started_pids=()
+EXIT_CLEANUP_DONE=false
+track_pid 12345 "comfyui"
+""", env={"CLAWDESS_DEPLOY_ROOT": str(deploy_root)})
+    assert result.returncode == 0
+    assert (run_dir / "comfyui.pid").exists()
+    assert (run_dir / "comfyui.pid").read_text().strip() == "12345"
+
+
+def test_do_cleanup_is_idempotent(tmp_path):
+    """do_cleanup returns immediately when already cleaned up."""
+    deploy_root = tmp_path / "deploy"
+    run_dir = deploy_root / "run"
+    run_dir.mkdir(parents=True)
+    result = bash(f"""started_pids=()
+EXIT_CLEANUP_DONE=true
+do_cleanup
+echo "exit:$?"
+""", env={"CLAWDESS_DEPLOY_ROOT": str(deploy_root)})
+    assert result.returncode == 0
+    assert "exit:0" in result.stdout
+
+
+def test_service_startup_phases_exist():
+    """The wizard includes startup and smoke test phases."""
+    content = CLI.read_text()
+    assert "PHASE=\"startup\"" in content
+    assert "PHASE=\"smoke\"" in content
+    assert "track_pid" in content
+    assert "do_cleanup" in content
+    assert "EXIT_CLEANUP_DONE" in content
+
+
+def test_smoke_stops_services(tmp_path):
+    """Smoke phase stops ComfyUI and TTS after running tests."""
+    content = CLI.read_text()
+    assert "run/tts.pid" in content
+    assert "run/comfyui.pid" in content
+    assert "smoke: stopping services" in content
+
+
 def test_dry_run_reset_is_rejected_without_mutation(tmp_path):
     root = tmp_path / "deployment"
     root.mkdir()

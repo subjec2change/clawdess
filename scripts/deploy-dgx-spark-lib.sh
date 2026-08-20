@@ -3,6 +3,12 @@
 # Source this file; the executable wizard owns shell options and lifecycle.
 set -o nounset
 
+# Lifecycle state — initialized so nounset doesn't trip on empty arrays
+started_pids=()
+# Lifecycle defaults — CLI script may override these
+DEPLOY_ROOT="${CLAWDESS_DEPLOY_ROOT:-${DEPLOY_ROOT:-/tmp/dgx-spark-deploy}}"
+EXIT_CLEANUP_DONE=false
+
 # Command probes are functions rather than aliases so tests can override them.
 clawdess_command_v() { command -v "$1"; }
 clawdess_nvidia_smi() { nvidia-smi "$@"; }
@@ -837,7 +843,75 @@ else
 fi
 SCRIPT
 
-    chmod +x "$deploy_root/bin/"*.sh "$deploy_root/bin"/*.py "$deploy_root/bin"/start-* "$deploy_root/bin"/stop-* "$deploy_root/bin"/status 2>/dev/null || true
+    # Health-check script
+    cat > "$deploy_root/bin/health-check" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+error_count=0
+
+# Check ComfyUI readiness
+if [[ -f "$SCRIPT_DIR/run/comfyui.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/comfyui.pid")"
+    if kill -0 "$pid" 2>/dev/null; then
+        # Try readiness endpoint
+        if "$SCRIPT_DIR/venv/bin/python" -c '
+import urllib.request, sys
+try:
+    resp = urllib.request.urlopen("http://127.0.0.1:8188/system_stats", timeout=5)
+    if resp.status == 200:
+        sys.exit(0)
+except Exception:
+    sys.exit(1)
+' 2>/dev/null; then
+            printf 'ComfyUI: ready (pid %s)\n' "$pid"
+        else
+            printf 'ComfyUI: process alive but not ready (pid %s)\n' "$pid"
+            error_count=$((error_count + 1))
+        fi
+    else
+        printf 'ComfyUI: dead process in pid file\n'
+        error_count=$((error_count + 1))
+    fi
+else
+    printf 'ComfyUI: no pid file found (service not started)\n'
+    error_count=$((error_count + 1))
+fi
+
+# Check TTS availability
+if [[ -f "$SCRIPT_DIR/run/tts.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/tts.pid")"
+    if kill -0 "$pid" 2>/dev/null; then
+        printf 'TTS (piper): ready (pid %s)\n' "$pid"
+    else
+        printf 'TTS (piper): dead process in pid file\n'
+        error_count=$((error_count + 1))
+    fi
+else
+    printf 'TTS (piper): no pid file found (service not started)\n'
+    error_count=$((error_count + 1))
+fi
+
+# Check state file
+if [[ -f "$SCRIPT_DIR/state/deployment-state.json" ]]; then
+    state="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("state","unknown"))' "$SCRIPT_DIR/state/deployment-state.json" 2>/dev/null || echo unknown)"
+    printf 'State: %s\n' "$state"
+    if [[ "$state" == "failed" ]]; then
+        error_count=$((error_count + 1))
+    fi
+fi
+
+if [[ "$error_count" -gt 0 ]]; then
+    printf 'health-check: %d issue(s) found\n' "$error_count"
+    exit 1
+fi
+
+printf 'health-check: all services healthy\n'
+exit 0
+SCRIPT
+
+    chmod +x "$deploy_root/bin/"*.sh "$deploy_root/bin"/*.py "$deploy_root/bin"/start-* "$deploy_root/bin"/stop-* "$deploy_root/bin"/status "$deploy_root/bin"/health-check 2>/dev/null || true
 
     printf 'lifecycle: generated scripts in %s/bin\n' "$deploy_root"
     return 0
@@ -936,5 +1010,45 @@ on_error() {
             printf 'state: error handler could not persist failure state\n' >&2
             return 1
         fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Lifecycle: PID tracking and cleanup
+# ---------------------------------------------------------------------------
+
+# Track PID for cleanup on EXIT
+track_pid() {
+    local pid="${1:?pid required}" service="${2:?service required}"
+    started_pids+=("$pid")
+    printf '%s' "$pid" > "$DEPLOY_ROOT/run/${service}.pid"
+    printf 'lifecycle: tracking %s pid=%s\n' "$service" "$pid" >> "${RUN_LOG:-/dev/stdout}"
+}
+
+# Cleanup function - stops only services started by this run
+do_cleanup() {
+    [[ "$EXIT_CLEANUP_DONE" == true ]] && return
+    EXIT_CLEANUP_DONE=true
+    printf 'cleanup: stopping %d service(s)\n' "${#started_pids[@]}"
+    for pid in "${started_pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            printf 'cleanup: sending SIGTERM to pid %s\n' "$pid"
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+    # Also stop services via their PID files that we might not have tracked
+    if [[ -n "$DEPLOY_ROOT" && -d "$DEPLOY_ROOT/run" ]]; then
+        local my_pid=$$
+        for pid_file in "$DEPLOY_ROOT/run"/*.pid; do
+            [[ -f "$pid_file" ]] || continue
+            local pid
+            pid="$(cat "$pid_file" 2>/dev/null)" || continue
+            if [[ "$pid" =~ ^[0-9]+$ && "$pid" != "$my_pid" ]] && ! printf '%s\n' "${started_pids[@]}" | grep -qx "$pid" 2>/dev/null; then
+                if kill -0 "$pid" 2>/dev/null; then
+                    printf 'cleanup: stopping orphan pid %s\n' "$pid"
+                    kill "$pid" 2>/dev/null || true
+                fi
+            fi
+        done
     fi
 }
