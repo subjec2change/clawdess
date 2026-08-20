@@ -125,10 +125,21 @@ state_write() {
     # Build combined state
     local payload
     if ! payload="$(command python3 -c "
-import json, sys
+import json, sys, os
 existing = json.loads(sys.argv[1]) if sys.argv[1] else {}
+# Preserve existing state if set; otherwise default to 'failed'
+# sys.argv[5] is the desired state (may be empty string when not explicitly set)
+desired_state = None
+if len(sys.argv) > 5 and sys.argv[5]:
+    desired_state = sys.argv[5]
+if existing.get('state') and existing.get('state') != 'failed':
+    state_val = existing['state']
+elif desired_state:
+    state_val = desired_state
+else:
+    state_val = 'failed'
 state = {
-    'state': 'failed' if 'failed' not in existing.get('state', '') else existing.get('state'),
+    'state': state_val,
     'phase': sys.argv[2],
     'error': sys.argv[3],
 }
@@ -138,7 +149,7 @@ if existing:
             state[k] = existing[k]
 state['models'] = json.loads(sys.argv[4]) if sys.argv[4] else existing.get('models', [])
 print(json.dumps(state, separators=(',',':')))
-" "$existing_state" "$phase" "$(redact_text "$reason")" "$extra")"; then
+" "$existing_state" "$phase" "$(redact_text "$reason")" "$extra" "${5:-}")"; then
         printf 'state: failed to construct JSON payload\n' >&2
         return 1
     fi
@@ -157,18 +168,36 @@ state_success() {
         existing_state="$(json_read "$state_dir/deployment-state.json")"
     fi
 
+    # Build manifest JSON, redacting secrets from existing state data
     local payload
     payload="$(command python3 -c "
-import json, sys
+import json, sys, os, re
 existing = json.loads(sys.argv[1]) if sys.argv[1] else {}
 manifest = {
     'state': 'completed',
     'phase': 'completed',
     'deployed_at': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
 }
+# Redact secrets from existing state before embedding
+def redact_obj(obj):
+    if isinstance(obj, dict):
+        return {k: redact_obj(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [redact_obj(item) for item in obj]
+    elif isinstance(obj, str):
+        result = re.sub(r'(https?://)[^/@\s]+@', r'\1<REDACTED>@', obj)
+        result = re.sub(r'([?&](?:token|access_token|api_key|key)=)[^&\s]*', r'\1<REDACTED>', result)
+        for env_name in os.environ:
+            if env_name.startswith('CLAWDESS_'):
+                val = os.environ[env_name]
+                if val:
+                    result = result.replace(val, '<REDACTED>')
+        return result
+    return obj
+clean_existing = redact_obj(existing)
 for k in ('models', 'venv', 'comfyui', 'tts'):
-    if k in existing:
-        manifest[k] = existing[k]
+    if k in clean_existing:
+        manifest[k] = clean_existing[k]
 print(json.dumps(manifest, separators=(',',':')))
 " "$existing_state")"
     json_write_atomic "$manifest_path" "$payload"
@@ -910,6 +939,32 @@ fi
 printf 'health-check: all services healthy\n'
 exit 0
 SCRIPT
+
+    # Docker Compose scaffold for deferred profiles (media/assistant/all)
+    cat > "$deploy_root/docker-compose.yml" <<'COMPOSE'
+version: "3.8"
+services:
+  comfyui:
+    image: ghcr.io/comfyanonymous/comfyui:latest
+    volumes:
+      - "./models:/models"
+      - "./artifacts:/artifacts"
+    ports:
+      - "8188:8188"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  tts:
+    image: ghcr.io/rhasspy/piper:latest
+    volumes:
+      - "./models:/models"
+    command: >
+      piper --model /models/lessac-medium.onnx
+      --config /models/lessac-medium.onnx.json
+      --output /artifacts/tts-output
+    restart: unless-stopped
+COMPOSE
 
     chmod +x "$deploy_root/bin/"*.sh "$deploy_root/bin"/*.py "$deploy_root/bin"/start-* "$deploy_root/bin"/stop-* "$deploy_root/bin"/status "$deploy_root/bin"/health-check 2>/dev/null || true
 
