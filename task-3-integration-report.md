@@ -7,7 +7,14 @@
 
 Verification (fresh):
 
-- Focused Task 3 regression selection (`pytest -q tests/test_deploy_dgx_spark.py -k 'cli_real_command_failure or deploy_root_routes or persist_failed_state_reports or on_error_redacts_url or state_write_invalid_payload'`): **5 passed, 49 deselected**.
-- Full `pytest -q`: **46 passed, 8 failed**. The failures are broader pre-existing model-fixture and CLI-contract/reset expectations outside these final Task 3 corrections; full-suite success is not claimed.
+- Corrected model-state writes to use the canonical deploy root (`<deploy-root>/state/deployment-state.json`), while preserving explicit external model roots.
+- Completed CLI reset safety: `--reset` requires `--yes`, rejects dry-run and symlink roots/parents, removes only the deployment root, and preserves external model roots.
+- Kept host validation production-strict: the test seam bypasses architecture only; NVIDIA probe failures still return status 2 and persist discovery state.
+- Added observable verbose/help and dry-run contract coverage without weakening runtime validation.
+
+Verification (fresh):
+
+- `pytest -q tests/test_deploy_dgx_spark.py`: **54 passed**.
+- `pytest -q`: **54 passed**.
 - `bash -n scripts/deploy-dgx-spark.sh scripts/deploy-dgx-spark-lib.sh`: passed.
 - `git diff --check`: passed.

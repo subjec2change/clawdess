@@ -90,8 +90,8 @@ json_read() {
 # ---------------------------------------------------------------------------
 
 initialize_layout() {
-    local state_root="${1:?state root required}"
-    mkdir -p -- "$state_root/state"
+    local deploy_root="${1:?deploy root required}"
+    mkdir -p -- "$deploy_root/state"
 }
 
 # ---------------------------------------------------------------------------
@@ -102,12 +102,12 @@ initialize_layout() {
 # The wizard commits the layout atomically.
 
 state_write() {
-    local state_root="${1:?state root required}"
+    local deploy_root="${1:?deploy root required}"
     local phase="${2:?phase required}"
     local reason="${3:?reason required}"
     local extra="${4:-}"
 
-    local state_dir="$state_root/state"
+    local state_dir="$deploy_root/state"
     mkdir -p -- "$state_dir"
 
     # Read existing state if present
@@ -140,9 +140,9 @@ print(json.dumps(state, separators=(',',':')))
 }
 
 state_success() {
-    local state_root="${1:?state root required}"
-    local state_dir="$state_root/state"
-    local manifest_path="$state_root/deployment-manifest.json"
+    local deploy_root="${1:?deploy root required}"
+    local state_dir="$deploy_root/state"
+    local manifest_path="$deploy_root/deployment-manifest.json"
 
     mkdir -p -- "$state_dir"
 
@@ -175,7 +175,7 @@ print(json.dumps(manifest, separators=(',',':')))
 check_gb10_gpu() {
     local smi_output
     smi_output="$(clawdess_nvidia_smi --query-gpu=name,memory.total,compute.cap --format=csv,noheader 2>/dev/null)" || {
-        printf 'gpu: nvidia-smi not available\n' >&2
+        printf 'gpu: nvidia-smi probe failed\n' >&2
         return 1
     }
 
@@ -490,13 +490,18 @@ print(json.dumps(r, separators=(',',':')))
         fi
 
         # Record successful model state
+        if [[ -n "$checksum" ]]; then
+            checksum_status=verified
+        else
+            checksum_status=not-declared
+        fi
         model_entries+=("$(python3 -c "
 import json, sys, re
 r = json.loads(sys.argv[1])
 r['source'] = re.sub(r'(https?://)[^/@\s]+@', r'\1<REDACTED>@', r.get('source', ''))
 r.update(path=sys.argv[2], size=int(sys.argv[3]), status=sys.argv[4], checksum_status=sys.argv[5])
 print(json.dumps(r, separators=(',',':')))
-" "$record" "$path" "$size" "$status" "${checksum:+verified:-not-declared}")")
+" "$record" "$path" "$size" "$status" "$checksum_status")")
     done
 
     # Write model state if we have entries
@@ -890,15 +895,29 @@ EOF
 # ---------------------------------------------------------------------------
 
 persist_failed_state() {
-    local state_root="${1:?state root required}"
+    local deploy_root="${1:?deploy root required}"
     local phase="${2:?phase required}"
     local error="${3:?error required}"
 
-    if ! state_write "$state_root" "$phase" "$(redact_text "$error")"; then
+    if ! state_write "$deploy_root" "$phase" "$(redact_text "$error")"; then
         printf 'state: failed to persist failed state for phase=%s\n' "$phase" >&2
         return 1
     fi
     printf 'state: persisted failed state for phase=%s\n' "$phase"
+}
+
+reset_deployment_root() {
+    local root="${1:?deploy root required}" current parent
+    [[ -n "$root" && "$root" != / && "$root" != . && "$root" != "$HOME" ]] || { printf 'reset: refusing unsafe deployment root\n' >&2; return 2; }
+    current="$root"
+    while [[ "$current" != / ]]; do
+        [[ ! -L "$current" ]] || { printf 'reset: refusing symlink path component: %s\n' "$current" >&2; return 2; }
+        parent=$(dirname -- "$current")
+        [[ "$parent" != "$current" ]] || break
+        current="$parent"
+    done
+    [[ ! -e "$root" ]] || rm -rf -- "$root" || return 1
+    printf 'reset: removed deployment data at %s (external model root preserved)\n' "$root"
 }
 
 on_error() {

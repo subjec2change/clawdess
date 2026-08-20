@@ -216,10 +216,14 @@ def test_successful_model_state_is_structured_json(tmp_path):
     root = tmp_path / "models"
     state_root = tmp_path / "state"
     bash(f"source {LIB}; initialize_layout {state_root}")
-    config = ROOT / "config" / "dgx-spark-models.json"
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({
+        "juggernaut-xl-v10": {"source": "https://example.invalid/model", "revision": "v10", "filename": "juggernautXL_v10.safetensors", "minimum_size_bytes": 6650000000, "required": True, "checksum": ""},
+        "piper-voice": {"source": "https://example.invalid/voice", "revision": "v1", "filename": "voice.onnx", "minimum_size_bytes": 1, "required": False, "checksum": ""},
+    }))
     script = f'''source {LIB}
-probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 1000000 0 1000000 0% /\\n'; }}
-probe_curl() {{ printf 'valid-model-data' > "$2"; }}
+probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 10000000 0 10000000 0% /\\n'; }}
+probe_curl() {{ truncate -s 6650000000 "$2"; }}
 acquire_models "{root}" "{config}" "juggernaut-xl-v10" "piper-voice" false "{state_root}"'''
     result = bash(script)
     assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
@@ -230,7 +234,7 @@ acquire_models "{root}" "{config}" "juggernaut-xl-v10" "piper-voice" false "{sta
     assert "phase" in state
     record = state.get("models", [{}])[0]
     assert record.get("status") == "downloaded"
-    assert record["path"] == str(root / "model.bin") and record["size"] == 16 and record["checksum_status"] == "not-declared"
+    assert record["path"] == str(root / "juggernautXL_v10.safetensors") and record["size"] == 6650000000 and record["checksum_status"] == "not-declared"
 
 
 def test_required_model_download_failure_is_persisted_in_state(tmp_path):
@@ -240,7 +244,7 @@ def test_required_model_download_failure_is_persisted_in_state(tmp_path):
     bash(f"source {LIB}; initialize_layout {state_root}")
     config = ROOT / "config" / "dgx-spark-models.json"
     script = f'''source {LIB}
-probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 1000000 0 1000000 0% /\\n'; }}
+probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 10000000 0 10000000 0% /\\n'; }}
 probe_curl() {{ return 22; }}
 acquire_models "{root}" "{config}" "juggernaut-xl-v10" "piper-voice" false "{state_root}"'''
     result = bash(script)
@@ -273,8 +277,8 @@ def test_checksum_mismatch_persists_state(tmp_path):
     bash(f"source {LIB}; initialize_layout {state_root}")
     config = ROOT / "config" / "dgx-spark-models.json"
     script = f'''source {LIB}
-probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 1000000 0 1000000 0% /\\n'; }}
-probe_curl() {{ printf '{"checksum":"abc"}' > "$2"; }}
+probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 10000000 0 10000000 0% /\\n'; }}
+probe_curl() {{ printf '{{\"checksum\":\"abc\"}}' > "$2"; }}
 acquire_models "{root}" "{config}" "juggernaut-xl-v10" "piper-voice" false "{state_root}"'''
     result = bash(script)
     assert result.returncode != 0
@@ -390,9 +394,11 @@ def test_dry_run_is_observable_without_real_services(tmp_path):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     nvidia_smi = fake_bin / "nvidia-smi"
-    nvidia_smi.write_text("#!/usr/bin/env bash\nprintf 'Fake GPU, 1.0, 8.9\\n'\n")
+    env["CLAWDESS_TEST_HOST_PROBE"] = "allow"
+    nvidia_smi.write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\\n'\n")
     nvidia_smi.chmod(0o755)
     env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    env["CLAWDESS_TEST_HOST_PROBE"] = "allow"
     result = subprocess.run(
         ["bash", str(CLI), "--profile", "minimal", "--image-model",
          "juggernaut-xl-v10", "--tts-backend", "piper", "--dry-run",
@@ -432,7 +438,7 @@ def test_required_discovery_probe_failure_is_logged(tmp_path):
     nvidia_smi.chmod(0o755)
     env = os.environ.copy()
     root = tmp_path / "deployment"
-    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": f"{fake_bin}:/usr/bin:/bin"})
+    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"})
     result = subprocess.run(
         ["bash", str(CLI), "--profile", "minimal", "--image-model",
          "juggernaut-xl-v10", "--tts-backend", "piper", "--dry-run",
@@ -556,9 +562,11 @@ def test_plan_cli_options_are_accepted(option, tmp_path):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     nvidia_smi = fake_bin / "nvidia-smi"
-    nvidia_smi.write_text("#!/usr/bin/env bash\nprintf 'Fake GPU, 1.0, 8.9\\n'\n")
+    env["CLAWDESS_TEST_HOST_PROBE"] = "allow"
+    nvidia_smi.write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\\n'\n")
     nvidia_smi.chmod(0o755)
     env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    env["CLAWDESS_TEST_HOST_PROBE"] = "allow"
     args = ["bash", str(CLI), "--profile", "minimal", "--image-model",
             "juggernaut-xl-v10", "--tts-backend", "piper", option]
     if option == "--model-root":
@@ -699,9 +707,9 @@ def test_cli_real_command_failure_invokes_production_error_handler(tmp_path):
     log = logs[0].read_text()
     assert "phase=discovery" in log and "status=" in log
     assert "cli-secret-value" not in log
-    state = json.loads((root / "state" / "state" / "deployment-state.json").read_text())
+    state = json.loads((root / "state" / "deployment-state.json").read_text())
     assert state["state"] == "failed" and state["phase"] == "discovery"
-    assert "cli-secret-value" not in (root / "state" / "state" / "deployment-state.json").read_text()
+    assert "cli-secret-value" not in (root / "state" / "deployment-state.json").read_text()
 
 
 def test_cli_deploy_root_routes_failure_artifacts_after_argument_parsing(tmp_path):
@@ -715,7 +723,7 @@ def test_cli_deploy_root_routes_failure_artifacts_after_argument_parsing(tmp_pat
     )
     assert result.returncode != 0
     assert list((requested_root / "logs").glob("deploy-*.log"))
-    assert (requested_root / "state" / "state" / "deployment-state.json").exists()
+    assert (requested_root / "state" / "deployment-state.json").exists()
     assert not env_root.exists()
 
 

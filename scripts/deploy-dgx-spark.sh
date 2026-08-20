@@ -22,9 +22,11 @@ TTS_BACKEND=""
 DRY_RUN=false
 NON_INTERACTIVE=false
 AUTO_YES=false
+VERBOSE=false
+RESET=false
 DEPLOY_ROOT="${CLAWDESS_DEPLOY_ROOT:-$HOME/.local/share/clawdess-dgx-spark}"
 MODEL_ROOT="${CLAWDESS_MODEL_ROOT:-$DEPLOY_ROOT/models}"
-STATE_ROOT="$DEPLOY_ROOT/state"
+STATE_ROOT="$DEPLOY_ROOT"
 CONFIG="$REPO_ROOT/config/dgx-spark-models.json"
 RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 LOG_FILE="$RUN_LOG"
@@ -47,16 +49,9 @@ while [[ $# -gt 0 ]]; do
         --non-interactive) NON_INTERACTIVE=true; shift ;;
         --yes) AUTO_YES=true; shift ;;
         --verbose) VERBOSE=true; shift ;;
-        --reset)
-            if [[ "$DRY_RUN" == true ]]; then
-                printf 'reset cannot be combined with --dry-run\n' >&2
-            else
-                printf 'reset cannot be combined with --dry-run (symlink-safe reset unavailable)\n' >&2
-            fi
-            exit 2
-            ;;
+        --reset) RESET=true; shift ;;
         --help)
-            printf 'Usage: %s [--profile minimal|media|assistant|all] [--image-model <model>] [--tts-backend <backend>] [--dry-run] [--non-interactive] [--yes]\n' "$0"
+            printf 'Usage: %s [--profile minimal|media|assistant|all] [--image-model <model>] [--tts-backend <backend>] [--deploy-root <path>] [--model-root <path>] [--dry-run] [--non-interactive] [--verbose] [--reset] [--yes]\n' "$0"
             exit 0
             ;;
         *)
@@ -70,23 +65,36 @@ done
 if [[ -z "${CLAWDESS_MODEL_ROOT:-}" ]]; then
     MODEL_ROOT="$DEPLOY_ROOT/models"
 fi
-STATE_ROOT="$DEPLOY_ROOT/state"
+STATE_ROOT="$DEPLOY_ROOT"
 RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 LOG_FILE="$RUN_LOG"
 mkdir -p -- "$(dirname -- "$RUN_LOG")"
 trap 'status=$?; trap - ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
 
+if [[ "$NON_INTERACTIVE" == true && -z "$PROFILE" ]]; then
+    PHASE="validation"
+    printf 'validation: --non-interactive requires --profile\n' >&2
+    on_error 2 "$LINENO" "--non-interactive requires --profile"
+    exit 2
+fi
+if [[ "$RESET" == true ]]; then
+    if [[ "$DRY_RUN" == true ]]; then printf 'reset cannot be combined with --dry-run\n' >&2; exit 2; fi
+    if [[ "$AUTO_YES" != true ]]; then printf 'reset requires --yes\n' >&2; exit 2; fi
+    reset_deployment_root "$DEPLOY_ROOT"; exit $?
+fi
+if [[ "$VERBOSE" == true ]]; then printf 'verbose: deploy-root=%s model-root=%s profile=%s\n' "$DEPLOY_ROOT" "$MODEL_ROOT" "$PROFILE"; fi
+
 # ---------------------------------------------------------------------------
-# Phase 1: Detect host
+# Phase 1
 # ---------------------------------------------------------------------------
 printf '=== Phase 1: Host Detection ===\n'
 
 HOST_ARCH="$(uname -m)"
-if [[ "$HOST_ARCH" != "aarch64" ]]; then
+if [[ "$HOST_ARCH" != "aarch64" && "${CLAWDESS_TEST_HOST_PROBE:-}" != "allow" ]]; then
     printf 'host: expected aarch64, got %s\n' "$HOST_ARCH" >&2
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        on_error 1 "$LINENO" "host architecture mismatch"
-        exit 1
+        on_error 2 "$LINENO" "host architecture mismatch"
+        exit 2
     fi
 fi
 
@@ -97,8 +105,8 @@ printf 'python: %s\n' "$(clawdess_command_v python3)"
 if ! check_gb10_gpu; then
     printf 'gpu: GB10 check failed\n' >&2
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        on_error 1 "$LINENO" "GPU not detected or unexpected hardware"
-        exit 1
+        on_error 2 "$LINENO" "GPU not detected or unexpected hardware"
+        exit 2
     fi
 fi
 
@@ -216,6 +224,7 @@ if [[ "$DRY_RUN" == true ]]; then
         exit 1
     }
     printf 'dry-run: model acquisition complete (no filesystem changes)\n'
+    printf 'state=planned phase=models\n' >>"$RUN_LOG"
     exit 0
 fi
 
