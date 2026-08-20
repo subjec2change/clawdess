@@ -681,7 +681,8 @@ def test_smoke_test_piper_generates_audio(tmp_path):
 def test_cli_real_command_failure_invokes_production_error_handler(tmp_path):
     env = os.environ.copy()
     root = tmp_path / "deployment"
-    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": "/usr/bin:/bin"})
+    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": "/usr/bin:/bin",
+                "CLAWDESS_TEST_TOKEN": "cli-secret-value"})
     result = subprocess.run(
         ["bash", str(CLI), "--profile", "minimal", "--image-model",
          "juggernaut-xl-v10", "--tts-backend", "piper", "--dry-run",
@@ -692,12 +693,51 @@ def test_cli_real_command_failure_invokes_production_error_handler(tmp_path):
     output = result.stdout + result.stderr
     assert "phase=discovery" in output
     assert "status=" in output and "command=" in output
+    assert "cli-secret-value" not in output
     logs = list((root / "logs").glob("deploy-*.log"))
     assert len(logs) == 1
     log = logs[0].read_text()
     assert "phase=discovery" in log and "status=" in log
+    assert "cli-secret-value" not in log
     state = json.loads((root / "state" / "state" / "deployment-state.json").read_text())
     assert state["state"] == "failed" and state["phase"] == "discovery"
+    assert "cli-secret-value" not in (root / "state" / "state" / "deployment-state.json").read_text()
+
+
+def test_cli_deploy_root_routes_failure_artifacts_after_argument_parsing(tmp_path):
+    env_root = tmp_path / "from-env"
+    requested_root = tmp_path / "requested"
+    env = os.environ.copy()
+    env.update({"CLAWDESS_DEPLOY_ROOT": str(env_root), "PATH": "/usr/bin:/bin"})
+    result = subprocess.run(
+        ["bash", str(CLI), "--deploy-root", str(requested_root), "--non-interactive"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode != 0
+    assert list((requested_root / "logs").glob("deploy-*.log"))
+    assert (requested_root / "state" / "state" / "deployment-state.json").exists()
+    assert not env_root.exists()
+
+
+def test_persist_failed_state_reports_persistence_failure(tmp_path):
+    result = bash(f"state_write() {{ return 9; }}; persist_failed_state '{tmp_path}' discovery boom")
+    assert result.returncode != 0
+    assert "persisted failed state" not in result.stdout
+
+
+def test_on_error_redacts_url_credentials_and_query_secrets(tmp_path):
+    log = tmp_path / "run.log"
+    command = "curl 'https://user:pass@example.test/model?token=t1&access_token=t2&api_key=t3&key=t4'"
+    result = subprocess.run(
+        ["bash", "-c", f"source {CLI}; RUN_LOG={log!s}; PHASE=models; on_error 7 12 {command!r}"],
+        cwd=ROOT, text=True, capture_output=True, check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0
+    for secret in ("user:pass", "t1", "t2", "t3", "t4"):
+        assert secret not in output
+        assert secret not in log.read_text()
+    assert "<REDACTED>" in output
 
 
 def test_state_write_invalid_payload_preserves_existing_destination(tmp_path):

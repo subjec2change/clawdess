@@ -29,7 +29,6 @@ CONFIG="$REPO_ROOT/config/dgx-spark-models.json"
 RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 LOG_FILE="$RUN_LOG"
 PHASE="discovery"
-mkdir -p -- "$(dirname -- "$RUN_LOG")"
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
     return 0
 fi
@@ -47,6 +46,15 @@ while [[ $# -gt 0 ]]; do
         --dry-run) DRY_RUN=true; shift ;;
         --non-interactive) NON_INTERACTIVE=true; shift ;;
         --yes) AUTO_YES=true; shift ;;
+        --verbose) VERBOSE=true; shift ;;
+        --reset)
+            if [[ "$DRY_RUN" == true ]]; then
+                printf 'reset cannot be combined with --dry-run\n' >&2
+            else
+                printf 'reset cannot be combined with --dry-run (symlink-safe reset unavailable)\n' >&2
+            fi
+            exit 2
+            ;;
         --help)
             printf 'Usage: %s [--profile minimal|media|assistant|all] [--image-model <model>] [--tts-backend <backend>] [--dry-run] [--non-interactive] [--yes]\n' "$0"
             exit 0
@@ -57,6 +65,16 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# CLI arguments override environment-derived paths. Keep an explicit model root.
+if [[ -z "${CLAWDESS_MODEL_ROOT:-}" ]]; then
+    MODEL_ROOT="$DEPLOY_ROOT/models"
+fi
+STATE_ROOT="$DEPLOY_ROOT/state"
+RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
+LOG_FILE="$RUN_LOG"
+mkdir -p -- "$(dirname -- "$RUN_LOG")"
+trap 'status=$?; trap - ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
 
 # ---------------------------------------------------------------------------
 # Phase 1: Detect host

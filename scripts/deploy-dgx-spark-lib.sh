@@ -894,7 +894,10 @@ persist_failed_state() {
     local phase="${2:?phase required}"
     local error="${3:?error required}"
 
-    state_write "$state_root" "$phase" "$(redact_text "$error")"
+    if ! state_write "$state_root" "$phase" "$(redact_text "$error")"; then
+        printf 'state: failed to persist failed state for phase=%s\n' "$phase" >&2
+        return 1
+    fi
     printf 'state: persisted failed state for phase=%s\n' "$phase"
 }
 
@@ -902,6 +905,7 @@ on_error() {
     local status="${1:?status required}" line="${2:?line required}" command_text="${3:-${BASH_COMMAND:-unknown}}"
     local message="phase=${PHASE:-unknown} status=${status} line=${line} command=${command_text}"
     message="$(redact_text "$message")"
+    message="$(_model_redact_url "$message")"
     message="${message//\*\*\*/<REDACTED>}"
     printf '%s\n' "$message" >&2
     if [[ -n "${RUN_LOG:-}" ]]; then
@@ -909,6 +913,9 @@ on_error() {
         printf '%s\n' "$message" >>"$RUN_LOG"
     fi
     if [[ -n "${STATE_ROOT:-}" ]]; then
-        persist_failed_state "$STATE_ROOT" "${PHASE:-unknown}" "$message" || true
+        if ! persist_failed_state "$STATE_ROOT" "${PHASE:-unknown}" "$message"; then
+            printf 'state: error handler could not persist failure state\n' >&2
+            return 1
+        fi
     fi
 }
