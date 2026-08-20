@@ -60,9 +60,15 @@ json_write_atomic() {
     dir="$(dirname -- "$path")"
     mkdir -p -- "$dir"
     local tmp
-    tmp="$(printf '%s' "$path").tmp.$$"
-    printf '%s' "$payload" > "$tmp"
-    mv -f -- "$tmp" "$path"
+    tmp="$(mktemp --tmpdir="$dir" "$(basename -- "$path").tmp.XXXXXX")" || return 1
+    if ! printf '%s\n' "$payload" >"$tmp"; then
+        rm -f -- "$tmp"
+        return 1
+    fi
+    if ! mv -f -- "$tmp" "$path"; then
+        rm -f -- "$tmp"
+        return 1
+    fi
 }
 
 json_read() {
@@ -265,7 +271,24 @@ _model_path_safe() {
 }
 
 _model_redact_url() {
-    sed -E 's#(https?://)[^/@[:space:]]+@\#\\1<REDACTED>@#; s#([?&](token|access_token|api_key|key)=)[^&[:space:]]+#\1<REDACTED>#g' <<<"$1"
+    command python3 -c '
+import re, sys
+value = sys.argv[1]
+value = re.sub(r"(https?://)[^/@\s]+@", r"\1<REDACTED>@", value)
+value = re.sub(r"([?&](?:token|access_token|api_key|key)=)[^&\s]*", r"\1<REDACTED>", value)
+print(value)
+' "$1"
+}
+
+redact_text() {
+    command python3 -c '
+import os, re, sys
+value = sys.argv[1]
+for name, secret in os.environ.items():
+    if secret:
+        value = value.replace(secret, "<REDACTED>")
+print(value)
+' "$1"
 }
 
 _model_validate() {

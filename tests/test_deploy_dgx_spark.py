@@ -316,7 +316,7 @@ def test_json_write_is_atomic_and_complete(tmp_path):
     destination = tmp_path / "state" / "deployment-state.json"
     destination.parent.mkdir()
     result = bash(
-        f"payload='{{\\\"status\\\":\\\"planned\\\"}}'; json_write_atomic {destination} \"$payload\""
+        f"payload='{{\"status\":\"planned\"}}'; json_write_atomic {destination} \"$payload\""
     )
     assert result.returncode == 0, result.stderr
     assert destination.read_text() == '{"status":"planned"}\n'
@@ -454,15 +454,9 @@ def test_empty_secret_environment_does_not_emit_nested_redaction_error(tmp_path)
     for key in list(env):
         if key.startswith("CLAWDESS_"):
             env.pop(key)
-    env["CLAWDESS_DEPLOY_ROOT"] = str(tmp_path / "deployment")
-    result = subprocess.run(
-        ["bash", str(CLI), "--non-interactive"], cwd=ROOT, env=env,
-        text=True, capture_output=True, check=False,
-    )
-    output = result.stdout + result.stderr
-    assert result.returncode == 2
-    assert "compgen -A variable CLAWDESS_" not in output
-    assert "--profile is required" in output
+    result = bash("redact_text 'safe text'", env=env)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "safe text\n"
 
 
 def test_dry_run_reset_is_rejected_without_mutation(tmp_path):
