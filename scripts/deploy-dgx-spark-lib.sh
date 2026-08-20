@@ -9,7 +9,13 @@ clawdess_nvidia_smi() { nvidia-smi "$@"; }
 clawdess_python() { python3 "$@"; }
 clawdess_curl() { command curl --fail --location --silent "$@"; }
 clawdess_df() { command df -h "$@"; }
+clawdess_docker() { command docker "$@"; }
 clawdess_json() { python3 -m json.tool "$@"; }
+
+probe_command() { clawdess_command_v "$@"; }
+probe_nvidia_smi() { clawdess_nvidia_smi "$@"; }
+probe_python() { clawdess_python "$@"; }
+probe_docker() { clawdess_docker "$@"; }
 
 # ---------------------------------------------------------------------------
 # Filesystem helpers
@@ -33,13 +39,15 @@ deployment_path() {
 # Tests override this with a fixed output.
 probe_df() {
     local root="${1:?root required}"
-    df -Pk "$root" 2>/dev/null || { printf 'disk: df failed for %s\n' "$root" >&2; return 1; }
+    clawdess_df -Pk "$root" 2>/dev/null || { printf 'disk: df failed for %s\n' "$root" >&2; return 1; }
 }
 
 # probe_curl - download URL to FILE with resume support.
 # Tests override this with a fixed output.
 probe_curl() {
-    clawdess_curl --fail --location --continue-at - --output "$@" "$@"
+    local url="${1:?url required}" output="${2:?output path required}"
+    shift 2
+    clawdess_curl --fail --location --continue-at - "$@" --output "$output" "$url"
 }
 
 # ---------------------------------------------------------------------------
@@ -156,6 +164,19 @@ check_gb10_gpu() {
 
     local name memory_total compute_cap
     IFS=',' read -r name memory_total compute_cap <<< "$smi_output"
+
+    # nvidia-smi's CSV formatter may surround each field with whitespace.
+    name="${name#"${name%%[![:space:]]*}"}"
+    name="${name%"${name##*[![:space:]]}"}"
+    memory_total="${memory_total#"${memory_total%%[![:space:]]*}"}"
+    memory_total="${memory_total%"${memory_total##*[![:space:]]}"}"
+    compute_cap="${compute_cap#"${compute_cap%%[![:space:]]*}"}"
+    compute_cap="${compute_cap%"${compute_cap##*[![:space:]]}"}"
+
+    if [[ "$name" != "GB10" ]]; then
+        printf 'gpu: unexpected GPU %s (expected GB10)\n' "$name" >&2
+        return 1
+    fi
 
     # Validate memory: GB10 reports [N/A] which is not an integer.
     # Accept memory values that are numeric or contain "[N/A]".
@@ -339,7 +360,7 @@ acquire_models() {
             if [[ "$free_kb" =~ ^[0-9]+$ && "$free_bytes" -ge "$required_bytes" ]]; then
                 # Download
                 mkdir -p -- "$(dirname -- "$path")" || return 1
-                if ! probe_curl --fail --location --continue-at - --output "$part" "$source" >/dev/null 2>&1; then
+                if ! probe_curl "$source" "$part" --fail --location --continue-at - >/dev/null 2>&1; then
                     rm -f -- "$part"
                     if [[ -n "$state_root" && "$required" == true ]]; then
                         local failed_record

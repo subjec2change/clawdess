@@ -73,7 +73,7 @@ def test_python_environment_validation_fails_missing_venv():
 def test_gpu_check_passes_gb10_output():
     """check_gb10_gpu succeeds with expected GB10 nvidia-smi output."""
     r = bash("""
-clawdess_nvidia_smi() { printf 'GB10, 64 GB, 12.1'; }
+clawdess_nvidia_smi() { printf ' GB10 , 64 GB , 12.1 '; }
 check_gb10_gpu
 """)
     assert r.returncode == 0
@@ -92,7 +92,7 @@ check_gb10_gpu
 def test_gpu_check_handles_na_memory():
     """check_gb10_gpu accepts [N/A] memory values."""
     r = bash("""
-clawdess_nvidia_smi() { printf 'GB10, [N/A], 12.1'; }
+clawdess_nvidia_smi() { printf ' GB10 , [N/A] , 12.1 '; }
 check_gb10_gpu
 """)
     assert r.returncode == 0
@@ -219,7 +219,7 @@ def test_successful_model_state_is_structured_json(tmp_path):
     config = ROOT / "config" / "dgx-spark-models.json"
     script = f'''source {LIB}
 probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 1000000 0 1000000 0% /\\n'; }}
-probe_curl() {{ printf 'valid-model-data' > "$6"; }}
+probe_curl() {{ printf 'valid-model-data' > "$2"; }}
 acquire_models "{root}" "{config}" "juggernaut-xl-v10" "piper-voice" false "{state_root}"'''
     result = bash(script)
     assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
@@ -274,7 +274,7 @@ def test_checksum_mismatch_persists_state(tmp_path):
     config = ROOT / "config" / "dgx-spark-models.json"
     script = f'''source {LIB}
 probe_df() {{ printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/x 1000000 0 1000000 0% /\\n'; }}
-probe_curl() {{ printf '{"checksum":"abc"}' > "$6"; }}
+probe_curl() {{ printf '{"checksum":"abc"}' > "$2"; }}
 acquire_models "{root}" "{config}" "juggernaut-xl-v10" "piper-voice" false "{state_root}"'''
     result = bash(script)
     assert result.returncode != 0
@@ -299,7 +299,7 @@ def test_probe_seams_are_overridable(tmp_path):
     probe_nvidia_smi
     probe_python --version
     probe_docker info
-    probe_curl --head https://example.invalid
+    probe_curl https://example.invalid {tmp_path}/download
     probe_df -Pk {tmp_path}
     """
     result = bash(script)
