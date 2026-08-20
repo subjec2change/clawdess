@@ -25,12 +25,25 @@ def _install_fake_runtime(root, env):
 def bash(script, env=None):
     """Run a bash script with source LIB pre-loaded."""
     full = f"source {LIB}\n{script}\n"
+    merged_env = os.environ.copy()
+    if env is not None:
+        merged_env.update(env)
     return subprocess.run(
         ["bash", "-c", full],
         capture_output=True, text=True,
-        env=env,
+        env=merged_env,
         timeout=30,
     )
+
+
+def test_bash_partial_env_override_preserves_inherited_path():
+    """bash env overrides retain inherited variables such as PATH."""
+    result = bash('printf "%s|%s" "$PATH" "$CLAWDESS_TEST_OVERRIDE"',
+                  env={"CLAWDESS_TEST_OVERRIDE": "present"})
+    path, override = result.stdout.split("|", 1)
+    assert result.returncode == 0
+    assert path == os.environ["PATH"]
+    assert override == "present"
 
 
 def test_bash_syntax():
