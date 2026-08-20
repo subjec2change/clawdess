@@ -61,14 +61,23 @@ json_write_atomic() {
     mkdir -p -- "$dir"
     local tmp
     tmp="$(mktemp --tmpdir="$dir" "$(basename -- "$path").tmp.XXXXXX")" || return 1
-    if ! printf '%s\n' "$payload" >"$tmp"; then
+    if ! json_atomic_write_temp "$tmp" "$payload"; then
         rm -f -- "$tmp"
         return 1
     fi
-    if ! mv -f -- "$tmp" "$path"; then
+    if ! json_atomic_rename "$tmp" "$path"; then
         rm -f -- "$tmp"
         return 1
     fi
+}
+
+json_atomic_write_temp() {
+    local path="${1:?temp path required}" payload="${2:?payload required}"
+    printf '%s\n' "$payload" >"$path"
+}
+
+json_atomic_rename() {
+    mv -f -- "$1" "$2"
 }
 
 json_read() {
@@ -108,7 +117,8 @@ state_write() {
     fi
 
     # Build combined state
-    command python3 -c "
+    local payload
+    if ! payload="$(command python3 -c "
 import json, sys
 existing = json.loads(sys.argv[1]) if sys.argv[1] else {}
 state = {
@@ -122,7 +132,11 @@ if existing:
             state[k] = existing[k]
 state['models'] = json.loads(sys.argv[4]) if sys.argv[4] else existing.get('models', [])
 print(json.dumps(state, separators=(',',':')))
-" "$existing_state" "$phase" "$reason" "$extra"
+" "$existing_state" "$phase" "$(redact_text "$reason")" "$extra")"; then
+        printf 'state: failed to construct JSON payload\n' >&2
+        return 1
+    fi
+    json_write_atomic "$state_dir/deployment-state.json" "$payload"
 }
 
 state_success() {
@@ -137,7 +151,8 @@ state_success() {
         existing_state="$(json_read "$state_dir/deployment-state.json")"
     fi
 
-    command python3 -c "
+    local payload
+    payload="$(command python3 -c "
 import json, sys
 existing = json.loads(sys.argv[1]) if sys.argv[1] else {}
 manifest = {
@@ -149,7 +164,8 @@ for k in ('models', 'venv', 'comfyui', 'tts'):
     if k in existing:
         manifest[k] = existing[k]
 print(json.dumps(manifest, separators=(',',':')))
-" "$existing_state" > "$manifest_path"
+" "$existing_state")"
+    json_write_atomic "$manifest_path" "$payload"
 }
 
 # ---------------------------------------------------------------------------
@@ -282,11 +298,24 @@ print(value)
 
 redact_text() {
     command python3 -c '
-import os, re, sys
+import os, pathlib, sys
 value = sys.argv[1]
+def secret_name(name):
+    upper = name.upper()
+    return any(x in upper for x in ("TOKEN", "SECRET", "API", "KEY", "PASSWORD")) and (upper.startswith("CLAWDESS_") or upper.endswith(("_TOKEN", "_SECRET", "_API_KEY", "_PASSWORD", "_TOKEN_FILE", "_TOKEN_PATH", "_SECRET_FILE", "_SECRET_PATH", "_API_KEY_FILE", "_API_KEY_PATH", "_PASSWORD_FILE", "_PASSWORD_PATH")))
 for name, secret in os.environ.items():
+    upper = name.upper()
+    if not secret_name(name):
+        continue
     if secret:
         value = value.replace(secret, "<REDACTED>")
+    if upper.endswith(("_FILE", "_PATH")):
+        try:
+            file_value = pathlib.Path(secret).read_text().strip()
+        except (OSError, ValueError):
+            file_value = ""
+        if file_value:
+            value = value.replace(file_value, "<REDACTED>")
 print(value)
 ' "$1"
 }
@@ -344,12 +373,15 @@ acquire_models() {
     local dry_run="${5:-false}" state_root="${6:-}"
 
     local records=() record kind name source revision filename minimum required checksum path part size status checksum_status
-    local free_kb free_bytes required_bytes state_models
+    local free_kb free_bytes required_bytes state_models=""
     local -a model_entries=()
-    mapfile -t records < <(model_records "$config" "$image" "$backend")
+    local records_output
+    records_output="$(model_records "$config" "$image" "$backend")" || return 1
+    [[ -n "$records_output" ]] || { printf 'model: no selected records\n' >&2; return 1; }
+    mapfile -t records <<< "$records_output"
     ((${#records[@]} > 0)) || { printf 'model: no selected records\n' >&2; return 1; }
 
-    while IFS= read -r record; do
+    for record in "${records[@]}"; do
         [[ -n "$record" ]] || continue
         kind=$(_model_record_field "$record" kind)
         name=$(_model_record_field "$record" name)
@@ -862,6 +894,21 @@ persist_failed_state() {
     local phase="${2:?phase required}"
     local error="${3:?error required}"
 
-    state_write "$state_root" "$phase" "$error"
+    state_write "$state_root" "$phase" "$(redact_text "$error")"
     printf 'state: persisted failed state for phase=%s\n' "$phase"
+}
+
+on_error() {
+    local status="${1:?status required}" line="${2:?line required}" command_text="${3:-${BASH_COMMAND:-unknown}}"
+    local message="phase=${PHASE:-unknown} status=${status} line=${line} command=${command_text}"
+    message="$(redact_text "$message")"
+    message="${message//\*\*\*/<REDACTED>}"
+    printf '%s\n' "$message" >&2
+    if [[ -n "${RUN_LOG:-}" ]]; then
+        mkdir -p -- "$(dirname -- "$RUN_LOG")"
+        printf '%s\n' "$message" >>"$RUN_LOG"
+    fi
+    if [[ -n "${STATE_ROOT:-}" ]]; then
+        persist_failed_state "$STATE_ROOT" "${PHASE:-unknown}" "$message" || true
+    fi
 }

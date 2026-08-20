@@ -323,6 +323,38 @@ def test_json_write_is_atomic_and_complete(tmp_path):
     assert list(destination.parent.glob("*.tmp.*")) == []
 
 
+def test_state_write_uses_atomic_json_writer(tmp_path):
+    state_root = tmp_path / "state"
+    result = bash(f"json_write_atomic() {{ printf 'called:%s' \"$1\"; }}; state_write {state_root} models failed")
+    assert result.returncode == 0
+    assert f"called:{state_root / 'state' / 'deployment-state.json'}" in result.stdout
+
+
+def test_atomic_write_failure_cleans_temp_and_preserves_destination(tmp_path):
+    destination = tmp_path / "state.json"
+    destination.write_text("old\n")
+    result = bash(f"json_atomic_rename() {{ return 1; }}; json_write_atomic {destination} new")
+    assert result.returncode != 0
+    assert destination.read_text() == "old\n"
+    assert list(tmp_path.glob("state.json.tmp.*")) == []
+
+
+def test_atomic_write_failure_cleans_temp_on_write_failure(tmp_path):
+    destination = tmp_path / "state.json"
+    destination.write_text("old\n")
+    result = bash(f"json_atomic_write_temp() {{ return 1; }}; json_write_atomic {destination} new")
+    assert result.returncode != 0
+    assert destination.read_text() == "old\n"
+    assert list(tmp_path.glob("state.json.tmp.*")) == []
+
+
+def test_state_success_uses_atomic_json_writer(tmp_path):
+    state_root = tmp_path / "state"
+    result = bash(f"json_write_atomic() {{ printf 'called:%s' \"$1\"; }}; state_success {state_root}")
+    assert result.returncode == 0
+    assert f"called:{state_root / 'deployment-manifest.json'}" in result.stdout
+
+
 def test_redaction_replaces_api_tokens_and_secret_file_values():
     env = os.environ.copy()
     env.update({
@@ -454,9 +486,12 @@ def test_empty_secret_environment_does_not_emit_nested_redaction_error(tmp_path)
     for key in list(env):
         if key.startswith("CLAWDESS_"):
             env.pop(key)
-    result = bash("redact_text 'safe text'", env=env)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "safe text\n"
+    env["CLAWDESS_DEPLOY_ROOT"] = str(tmp_path / "deployment")
+    result = subprocess.run(["bash", str(CLI), "--non-interactive"], cwd=ROOT, env=env, text=True, capture_output=True, check=False)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "compgen -A variable CLAWDESS_" not in output
+    assert "state: persisted failed state" in output
 
 
 def test_dry_run_reset_is_rejected_without_mutation(tmp_path):
@@ -641,3 +676,46 @@ def test_smoke_test_piper_generates_audio(tmp_path):
     smoke_wavs = list((deploy_root).glob("**/smoke_test.wav"))
     assert len(smoke_wavs) >= 1, f"Expected at least one smoke_test.wav under {deploy_root}"
     assert smoke_wavs[0].stat().st_size > 0, f"Expected smoke_test.wav to be non-empty"
+
+
+def test_cli_real_command_failure_invokes_production_error_handler(tmp_path):
+    env = os.environ.copy()
+    root = tmp_path / "deployment"
+    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": "/usr/bin:/bin"})
+    result = subprocess.run(
+        ["bash", str(CLI), "--profile", "minimal", "--image-model",
+         "juggernaut-xl-v10", "--tts-backend", "piper", "--dry-run",
+         "--non-interactive"], cwd=ROOT, env=env, text=True,
+        capture_output=True, check=False,
+    )
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert "phase=discovery" in output
+    assert "status=" in output and "command=" in output
+    logs = list((root / "logs").glob("deploy-*.log"))
+    assert len(logs) == 1
+    log = logs[0].read_text()
+    assert "phase=discovery" in log and "status=" in log
+    state = json.loads((root / "state" / "state" / "deployment-state.json").read_text())
+    assert state["state"] == "failed" and state["phase"] == "discovery"
+
+
+def test_state_write_invalid_payload_preserves_existing_destination(tmp_path):
+    state_root = tmp_path / "state"
+    state_file = state_root / "state" / "deployment-state.json"
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text('{"state":"old"}\n')
+    result = bash(f"state_write '{state_root}' models failed 'not-json'")
+    assert result.returncode != 0
+    assert state_file.read_text() == '{"state":"old"}\n'
+
+
+def test_redaction_handles_non_clawdess_secret_file_names(tmp_path):
+    secret_file = tmp_path / "token"
+    secret_file.write_text("file-secret\n")
+    env = os.environ.copy()
+    env["HF_TOKEN_PATH"] = str(secret_file)
+    env["ORDINARY_VALUE"] = "do-not-redact"
+    result = bash(f"redact_text 'file-secret {secret_file} do-not-redact'", env=env)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "<REDACTED> <REDACTED> do-not-redact"

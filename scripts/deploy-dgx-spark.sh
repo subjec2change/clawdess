@@ -5,12 +5,13 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB="$SCRIPT_DIR/deploy-dgx-spark-lib.sh"
 
 # Source helpers
 source "$LIB"
+trap 'status=$?; trap - ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -25,7 +26,13 @@ DEPLOY_ROOT="${CLAWDESS_DEPLOY_ROOT:-$HOME/.local/share/clawdess-dgx-spark}"
 MODEL_ROOT="${CLAWDESS_MODEL_ROOT:-$DEPLOY_ROOT/models}"
 STATE_ROOT="$DEPLOY_ROOT/state"
 CONFIG="$REPO_ROOT/config/dgx-spark-models.json"
-LOG_FILE="$DEPLOY_ROOT/logs/deploy.log"
+RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
+LOG_FILE="$RUN_LOG"
+PHASE="discovery"
+mkdir -p -- "$(dirname -- "$RUN_LOG")"
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+    return 0
+fi
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -60,7 +67,7 @@ HOST_ARCH="$(uname -m)"
 if [[ "$HOST_ARCH" != "aarch64" ]]; then
     printf 'host: expected aarch64, got %s\n' "$HOST_ARCH" >&2
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        persist_failed_state "$STATE_ROOT" "initialization" "host architecture mismatch"
+        on_error 1 "$LINENO" "host architecture mismatch"
         exit 1
     fi
 fi
@@ -72,7 +79,7 @@ printf 'python: %s\n' "$(clawdess_command_v python3)"
 if ! check_gb10_gpu; then
     printf 'gpu: GB10 check failed\n' >&2
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        persist_failed_state "$STATE_ROOT" "initialization" "GPU not detected or unexpected hardware"
+        on_error 1 "$LINENO" "GPU not detected or unexpected hardware"
         exit 1
     fi
 fi
@@ -82,7 +89,7 @@ if [[ "$PROFILE" != "minimal" ]]; then
     if ! check_docker_socket; then
         printf 'docker: not accessible (required for %s profile)\n' "$PROFILE" >&2
         if [[ "$NON_INTERACTIVE" == true ]]; then
-            persist_failed_state "$STATE_ROOT" "initialization" "Docker socket not accessible"
+            on_error 1 "$LINENO" "Docker socket not accessible"
             exit 1
         fi
     fi
@@ -91,6 +98,7 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 2: Layout
 # ---------------------------------------------------------------------------
+PHASE="layout"
 printf '=== Phase 2: Deployment Layout ===\n'
 
 if [[ "$DRY_RUN" == true ]]; then
@@ -104,6 +112,7 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 3: Python environment
 # ---------------------------------------------------------------------------
+PHASE="dependencies"
 printf '=== Phase 3: Python Environment ===\n'
 
 VENV_PATH="$DEPLOY_ROOT/venv"
@@ -130,7 +139,7 @@ else
     if [[ ! -d "$VENV_PATH" ]]; then
         printf 'python: creating virtualenv at %s\n' "$VENV_PATH"
         python3 -m venv "$VENV_PATH" || {
-            persist_failed_state "$STATE_ROOT" "dependencies" "virtualenv creation failed"
+            on_error 1 "$LINENO" "virtualenv creation failed"
             exit 1
         }
     fi
@@ -138,14 +147,14 @@ else
     # Install dependencies
     printf 'python: installing dependencies\n'
     "$VENV_PATH/bin/pip" install --upgrade pip wheel setuptools 2>&1 | tail -3 || {
-        persist_failed_state "$STATE_ROOT" "dependencies" "pip upgrade failed"
+        on_error 1 "$LINENO" "pip upgrade failed"
         exit 1
     }
 
     # Install PyTorch for ARM64 (CPU-only, no CUDA toolkit required)
     printf 'python: installing PyTorch (CPU)\n'
     "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 2>&1 | tail -5 || {
-        persist_failed_state "$STATE_ROOT" "dependencies" "PyTorch install failed"
+        on_error 1 "$LINENO" "PyTorch install failed"
         exit 1
     }
 fi
@@ -153,6 +162,7 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 4: ComfyUI
 # ---------------------------------------------------------------------------
+PHASE="comfyui"
 printf '=== Phase 4: ComfyUI ===\n'
 
 COMFYUI_PATH="$DEPLOY_ROOT/artifacts/ComfyUI"
@@ -162,7 +172,7 @@ if [[ "$DRY_RUN" == true ]]; then
     printf 'dry-run: comfyui_skip=not-installing\n'
 else
     if ! install_comfyui "$VENV_PATH/bin/python" "$COMFYUI_PATH"; then
-        persist_failed_state "$STATE_ROOT" "comfyui" "installation failed"
+        on_error 1 "$LINENO" "installation failed"
         exit 1
     fi
 fi
@@ -170,12 +180,13 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 5: Model acquisition
 # ---------------------------------------------------------------------------
+PHASE="models"
 printf '=== Phase 5: Model Acquisition ===\n'
 
 if [[ -z "$PROFILE" ]]; then
     printf 'profile: not set\n'
     if [[ "$NON_INTERACTIVE" == true ]]; then
-        persist_failed_state "$STATE_ROOT" "initialization" "profile not specified"
+        on_error 1 "$LINENO" "profile not specified"
         exit 1
     fi
 fi
@@ -183,7 +194,7 @@ fi
 if [[ "$DRY_RUN" == true ]]; then
     printf 'dry-run: acquiring models (dry run, no downloads)\n'
     acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" true "$STATE_ROOT" || {
-        persist_failed_state "$STATE_ROOT" "models" "dry-run model planning failed"
+        on_error 1 "$LINENO" "dry-run model planning failed"
         exit 1
     }
     printf 'dry-run: model acquisition complete (no filesystem changes)\n'
@@ -195,23 +206,24 @@ free_kb=$(probe_df -Pk "$MODEL_ROOT" 2>/dev/null | awk 'NR==2 {print $4}') || tr
 required_bytes=8000000000
 if [[ "$free_kb" =~ ^[0-9]+$ && "$free_kb" -lt "$((required_bytes / 1024 / 1024 + 100))" ]]; then
     printf 'disk: insufficient space for model acquisition (%d MB free, ~%d MB required)\n' "$free_kb" "$((required_bytes / 1024 / 1024))" >&2
-    persist_failed_state "$STATE_ROOT" "models" "insufficient disk space"
+    on_error 1 "$LINENO" "insufficient disk space"
     exit 1
 fi
 
 if ! acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" false "$STATE_ROOT"; then
-    persist_failed_state "$STATE_ROOT" "models" "model acquisition failed"
+    on_error 1 "$LINENO" "model acquisition failed"
     exit 1
 fi
 
 # ---------------------------------------------------------------------------
 # Phase 6: TTS installation
 # ---------------------------------------------------------------------------
+PHASE="tts"
 printf '=== Phase 6: TTS ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
     install_piper_tts "$VENV_PATH/bin/python" || {
-        persist_failed_state "$STATE_ROOT" "tts" "installation failed"
+        on_error 1 "$LINENO" "installation failed"
         exit 1
     }
 fi
@@ -219,11 +231,12 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 7: Smoke tests
 # ---------------------------------------------------------------------------
+PHASE="smoke"
 printf '=== Phase 7: Smoke Tests ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
     if ! smoke_test_comfyui "$COMFYUI_PATH" "$VENV_PATH/bin/python"; then
-        persist_failed_state "$STATE_ROOT" "smoke" "ComfyUI import failed"
+        on_error 1 "$LINENO" "ComfyUI import failed"
         exit 1
     fi
 fi
@@ -231,6 +244,7 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 8: Generate lifecycle scripts
 # ---------------------------------------------------------------------------
+PHASE="lifecycle"
 printf '=== Phase 8: Lifecycle Scripts ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
@@ -240,6 +254,7 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 9: Finalize
 # ---------------------------------------------------------------------------
+PHASE="finalize"
 printf '=== Phase 9: Finalize ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
