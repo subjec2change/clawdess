@@ -22,12 +22,13 @@ def _install_fake_runtime(root, env):
     return root / ".venv"
 
 
-def bash(script):
+def bash(script, env=None):
     """Run a bash script with source LIB pre-loaded."""
     full = f"source {LIB}\n{script}\n"
     return subprocess.run(
         ["bash", "-c", full],
         capture_output=True, text=True,
+        env=env,
         timeout=30,
     )
 
@@ -118,7 +119,7 @@ def test_model_validate_passes_valid_file(tmp_path):
     assert "1024" in r.stdout
 
 
-def test_model_validate_fails_undersized():
+def test_model_validate_fails_undersized(tmp_path):
     """_model_validate fails when file is below minimum size."""
     path = tmp_path / "small.bin"
     path.write_bytes(b"x" * 10)
@@ -175,7 +176,7 @@ def test_acquisition_creates_nothing_on_dry_run(tmp_path):
     assert not state_root.exists(), "dry-run should not create state root"
 
 
-def test_acquisition_plans_three_models_dry_run():
+def test_acquisition_plans_three_models_dry_run(tmp_path):
     """Dry-run planning lists all three model entries."""
     root = tmp_path / "models"
     state_root = tmp_path / "state"
