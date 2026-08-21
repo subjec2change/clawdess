@@ -445,7 +445,7 @@ def test_lifecycle_scripts_include_compose_files(tmp_path):
     deploy_root.mkdir()
     state_root = tmp_path / "state"
     state_root.mkdir()
-    result = bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}"')
+    result = bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}" "media" "true"')
     assert result.returncode == 0
 
     # Should create docker-compose.yml for deferred services
@@ -461,7 +461,7 @@ def test_docker_compose_scaffold_has_service_defs(tmp_path):
     deploy_root.mkdir()
     state_root = tmp_path / "state"
     state_root.mkdir()
-    bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}"')
+    bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}" "media" "true"')
     compose = deploy_root / "docker-compose.yml"
     assert compose.exists()
     content = compose.read_text()

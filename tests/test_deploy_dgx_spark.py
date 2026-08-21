@@ -572,6 +572,9 @@ def test_lifecycle_scripts_include_all_required_scripts(tmp_path):
     for name in required:
         path = deploy_root / "bin" / name
         assert path.exists(), f"Missing generated script: {name}"
+        # Each script must pass bash -n syntax check
+        r = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
+        assert r.returncode == 0, f"{name} failed bash -n: {r.stderr}"
 
 
 def test_cleanup_stops_tracked_services(tmp_path):

@@ -282,6 +282,7 @@ if [[ "$DRY_RUN" == false ]]; then
         printf 'startup: ComfyUI failed readiness, stopping...\n'
         kill "$COMFYUI_PID" 2>/dev/null || true
         rm -f "$DEPLOY_ROOT/run/comfyui.pid"
+        state_write "$DEPLOY_ROOT" "startup" "ComfyUI readiness failed" "" "partial"
         exit 1
     fi
     printf 'startup: ComfyUI is ready\n'
@@ -300,9 +301,13 @@ if [[ "$DRY_RUN" == false ]]; then
         rm -f "$DEPLOY_ROOT/run/tts.pid"
         kill "$COMFYUI_PID" 2>/dev/null || true
         rm -f "$DEPLOY_ROOT/run/comfyui.pid"
+        state_write "$DEPLOY_ROOT" "startup" "TTS readiness failed" "" "partial"
         exit 1
     fi
     printf 'startup: TTS is ready\n'
+
+    # Emit running state once all services are healthy
+    state_write "$DEPLOY_ROOT" "startup" "all services healthy" "" "running"
 fi
 
 # ---------------------------------------------------------------------------
@@ -313,8 +318,8 @@ printf '=== Phase 8: Smoke Tests ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
     if ! smoke_test_comfyui "$COMFYUI_PATH" "$VENV_PATH/bin/python"; then
+        state_write "$DEPLOY_ROOT" "smoke" "ComfyUI smoke test failed" "" "partial"
         on_error 1 "$LINENO" "ComfyUI import failed"
-        exit 1
     fi
     # Stop services after smoke tests
     printf 'smoke: stopping services...\n'
@@ -332,10 +337,17 @@ fi
 # Phase 9: Generate lifecycle scripts
 # ---------------------------------------------------------------------------
 PHASE="lifecycle"
-printf '=== Phase 8: Lifecycle Scripts ===\n'
+printf '=== Phase 9: Lifecycle Scripts ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
-    generate_lifecycle_scripts "$DEPLOY_ROOT" "$STATE_ROOT"
+# Only generate Docker Compose for non-minimal profiles when Docker is available
+docker_available=false
+if [[ "$PROFILE" != "minimal" ]]; then
+    if check_docker_socket 2>/dev/null; then
+        docker_available=true
+    fi
+fi
+generate_lifecycle_scripts "$DEPLOY_ROOT" "$STATE_ROOT" "$PROFILE" "$docker_available"
 fi
 
 # ---------------------------------------------------------------------------

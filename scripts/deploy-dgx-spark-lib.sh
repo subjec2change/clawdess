@@ -801,7 +801,10 @@ wait_for_tts_ready() {
 # ---------------------------------------------------------------------------
 
 generate_lifecycle_scripts() {
-    local deploy_root="${1:?deploy root required}" state_root="${2:?state root required}"
+    local deploy_root="${1:?deploy root required}"
+    local state_root="${2:?state root required}"
+    local profile="${3:-minimal}"
+    local docker_available="${4:-false}"
 
     mkdir -p -- "$deploy_root/bin"
 
@@ -940,8 +943,9 @@ printf 'health-check: all services healthy\n'
 exit 0
 SCRIPT
 
-    # Docker Compose scaffold for deferred profiles (media/assistant/all)
-    cat > "$deploy_root/docker-compose.yml" <<'COMPOSE'
+    # Docker Compose scaffold — only for non-minimal profiles with Docker available
+    if [[ "$profile" != "minimal" && "$docker_available" == "true" ]]; then
+        cat > "$deploy_root/docker-compose.yml" <<'COMPOSE'
 version: "3.8"
 services:
   comfyui:
@@ -965,6 +969,7 @@ services:
       --output /artifacts/tts-output
     restart: unless-stopped
 COMPOSE
+    fi
 
     chmod +x "$deploy_root/bin/"*.sh "$deploy_root/bin"/*.py "$deploy_root/bin"/start-* "$deploy_root/bin"/stop-* "$deploy_root/bin"/status "$deploy_root/bin"/health-check 2>/dev/null || true
 
