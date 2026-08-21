@@ -1,0 +1,34 @@
+{
+  "juggernaut-xl-v10": {
+    "source": "https://civitai.com/api/download/models/1296965",
+    "revision": "v10",
+    "filename": "juggernautXL_v10.safetensors",
+    "minimum_size_bytes": 6650000000,
+    "required": true,
+    "checksum": "sha256:a7998502176431e30841e9253ed9a81e3b1f2a87061f72983d7e41b6d822b220"
+  },
+  "piper-voice": {
+    "source": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium",
+    "revision": "lessac-medium",
+    "filename": "lessac-medium.onnx",
+    "minimum_size_bytes": 60000000,
+    "required": true,
+    "checksum": null
+  },
+  "piper-voice-json": {
+    "source": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/config.json",
+    "revision": "lessac-medium",
+    "filename": "lessac-medium.onnx.json",
+    "minimum_size_bytes": 1000,
+    "required": true,
+    "checksum": null
+  },
+  "stability-ai-sdxl-turbo": {
+    "source": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors",
+    "revision": "1.0",
+    "filename": "sdxl_turbo_fp16.safetensors",
+    "minimum_size_bytes": 2500000000,
+    "required": false,
+    "checksum": null
+  }
+}
