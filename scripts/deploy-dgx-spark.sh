@@ -225,6 +225,14 @@ if [[ -z "$PROFILE" ]]; then
     fi
 fi
 
+# Resolve selections from the profile/catalog while preserving explicit CLI overrides.
+if [[ -n "$PROFILE" ]]; then
+    features="$(select_features "$CONFIG" "$PROFILE")" || { on_error 1 "$LINENO" "feature selection failed"; exit 1; }
+    [[ -n "$IMAGE_MODEL" ]] || IMAGE_MODEL="$(select_model "$CONFIG" photo "$PROFILE")" || { on_error 1 "$LINENO" "image model selection failed"; exit 1; }
+    [[ -n "$TTS_BACKEND" ]] || TTS_BACKEND="$(select_model "$CONFIG" voice "$PROFILE")" || { on_error 1 "$LINENO" "TTS backend selection failed"; exit 1; }
+    printf 'selection: features=%s image-model=%s tts-backend=%s\n' "$features" "$IMAGE_MODEL" "$TTS_BACKEND"
+fi
+
 if [[ "$DRY_RUN" == true ]]; then
     printf 'dry-run: acquiring models (dry run, no downloads)\n'
     acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" true "$STATE_ROOT" || {

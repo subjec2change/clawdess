@@ -550,9 +550,9 @@ def test_select_provider_interactive(config_path):
     # Use script to give a real PTY so [[ -t 0 ]] is true.
     # Source the lib *inside* the script subshell so the function is available.
     full = (
-        'script -q -c '
-        f'"source {LIB} && select_provider \\"{config_path}\\" video" '
-        '< /dev/null | tr -d "\\r"\n'
+        f"printf '2\\n' | script -q -c "
+        f"'source {LIB} && select_provider \"{config_path}\" video' /dev/null "
+        "| tr -d '\\r'"
     )
     result = subprocess.run(
         ["bash", "-c", full],

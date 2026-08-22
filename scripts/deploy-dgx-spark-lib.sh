@@ -373,7 +373,7 @@ _model_validate() {
 # text_encoders, clip_vision, vae, etc.), each containing a list of file entries with
 # source, filename, minimum_size_bytes, required, checksum.
 model_records() {
-    local config="${1:?config required}" image="${2:?image required}" backend="${3:?backend required}"
+    local config="${1:?config required}" image="${2:?image required}" backend="${3:?backend required}" video="${4:-}"
     command python3 -c "
 import json, sys
 cfg = json.load(open(sys.argv[1]))
@@ -433,8 +433,8 @@ if backend_entry:
         r.update(backend_entry)
         records.append(json.dumps(r, separators=(',',':')))
 
-print('\n'.join(records))
-" "$config" "$image" "$backend"
+print('\\n'.join(records))
+" "$config" "$image" "$backend" "$video"
 }
 
 # acquire_models ROOT CONFIG IMAGE BACKEND DRY_RUN STATE_ROOT
@@ -1370,7 +1370,9 @@ if cli in models:
 import json, sys
 cfg = json.load(open(sys.argv[1]))
 p = cfg.get('profiles', {}).get(sys.argv[2], {})
-print(p.get(sys.argv[3], ''))
+model = p.get(sys.argv[3], '')
+aliases = cfg.get('aliases', {'piper': 'piper-voice', 'kokoro': 'piper-voice'})
+print(aliases.get(model, model))
 " "$config" "$profile" "$profile_key")
         if [[ -n "$model" ]]; then
             printf '%s\n' "$model"
@@ -1378,20 +1380,20 @@ print(p.get(sys.argv[3], ''))
         fi
     fi
 
-    # 3. Non-interactive default (first model in category)
+    # 3. Non-interactive default (first catalog entry)
     if [[ ! -t 0 ]]; then
         local default_model
         default_model=$(python3 -c "
 import json, sys
-cfg = json.load(open(sys.argv[1]))
-category = sys.argv[2]
-if category == 'voice':
-    backends = cfg.get('features', {}).get('voice', {}).get('backends', [])
+cfg = json.load(open(sys.argv[1])); category = sys.argv[2]
+f = cfg.get('features', {})
+if isinstance(f, dict):
+    e = f.get(category, {}); items = e.get('backends' if category == 'voice' else 'models', []) if isinstance(e, dict) else []
 else:
-    models_list = cfg.get('features', {}).get(category, {}).get('models', [])
-if models_list:
-    print(models_list[0])
+    items = cfg.get('catalog', {}).get(category, [])
+print(items[0] if items else '')
 " "$config" "$category")
+        [[ -n "$default_model" ]] || { printf 'no models for category: %s\n' "$category" >&2; return 1; }
         printf '%s\n' "$default_model"
         return 0
     fi

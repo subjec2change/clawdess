@@ -1,32 +1,49 @@
 {
-  "features": ["photo", "video", "voice"],
+  "features": [
+    "photo",
+    "video",
+    "voice"
+  ],
   "profiles": {
     "minimal": {
       "label": "Photo only (minimal)",
-      "features": ["photo"],
+      "features": [
+        "photo"
+      ],
       "photo_model": "juggernaut-xl-v10",
       "tts_backend": "piper"
     },
     "media": {
       "label": "Photo + Video (media)",
-      "features": ["photo", "video"],
+      "features": [
+        "photo",
+        "video"
+      ],
       "photo_model": "juggernaut-xl-v10",
       "video_model": "wan2gp-i2v-14B",
       "tts_backend": "piper"
     },
     "assistant": {
       "label": "Photo + Video + Voice (assistant)",
-      "features": ["photo", "video", "voice"],
+      "features": [
+        "photo",
+        "video",
+        "voice"
+      ],
       "photo_model": "juggernaut-xl-v10",
       "video_model": "wan2gp-i2v-14B",
-      "tts_backend": "kokoro"
+      "tts_backend": "piper"
     },
     "all": {
       "label": "All features",
-      "features": ["photo", "video", "voice"],
+      "features": [
+        "photo",
+        "video",
+        "voice"
+      ],
       "photo_model": "juggernaut-xl-v10",
       "video_model": "wan2gp-i2v-14B",
-      "tts_backend": "kokoro"
+      "tts_backend": "piper"
     }
   },
   "models": {
@@ -125,5 +142,20 @@
       "minimum_size_bytes": 11000000000,
       "required": true
     }
+  },
+  "aliases": {
+    "piper": "piper-voice"
+  },
+  "catalog": {
+    "photo": [
+      "juggernaut-xl-v10",
+      "stability-ai-sdxl-turbo"
+    ],
+    "video": [
+      "wan2gp-i2v-14B"
+    ],
+    "voice": [
+      "piper-voice"
+    ]
   }
 }
