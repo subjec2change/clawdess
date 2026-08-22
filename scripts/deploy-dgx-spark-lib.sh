@@ -368,6 +368,10 @@ _model_validate() {
 }
 
 # model_records CONFIG IMAGE BACKEND - emit one JSON record per line from the config.
+# Handles both legacy flat format (single file per entry) and new nested files format
+# where models have a `files` sub-dict keyed by subdir (diffusion_models, checkpoints,
+# text_encoders, clip_vision, vae, etc.), each containing a list of file entries with
+# source, filename, minimum_size_bytes, required, checksum.
 model_records() {
     local config="${1:?config required}" image="${2:?image required}" backend="${3:?backend required}"
     command python3 -c "
@@ -376,26 +380,59 @@ cfg = json.load(open(sys.argv[1]))
 image = sys.argv[2]
 backend = sys.argv[3]
 
-image_entry = cfg.get(image, {})
-backend_entry = cfg.get(backend, {})
+image_entry = cfg.get('models', {}).get(image, cfg.get(image, {}))
+# Preserve the legacy CLI backend names while using the new catalog keys.
+backend_candidates = [backend]
+if backend and not backend.endswith('-voice'):
+    backend_candidates.append(f'{backend}-voice')
+backend_entry = {}
+backend_name = backend
+for candidate in backend_candidates:
+    if candidate in cfg.get('models', {}):
+        backend_name = candidate
+        backend_entry = cfg['models'][candidate]
+        break
+    if candidate in cfg:
+        backend_name = candidate
+        backend_entry = cfg[candidate]
+        break
 
 records = []
+
+# Handle image models: support both flat (single-file) and nested files format
 if image_entry:
-    r = {'kind': 'image', 'name': image}
-    r.update(image_entry)
-    records.append(json.dumps(r, separators=(',',':')))
-if backend_entry:
-    # Some backends have multiple files (e.g., piper has .onnx + .json)
-    if 'files' in backend_entry:
-        for fname, fmeta in backend_entry['files'].items():
-            r = {'kind': 'tts', 'name': backend}
-            r.update(fmeta)
-            r['filename'] = fname
-            records.append(json.dumps(r, separators=(',',':')))
+    if 'files' in image_entry:
+        # New nested format: subdir -> list of file entries
+        for subdir, file_list in image_entry['files'].items():
+            if isinstance(file_list, list):
+                for fmeta in file_list:
+                    r = {'kind': 'image', 'name': image, 'subdir': subdir}
+                    r.update(fmeta)
+                    records.append(json.dumps(r, separators=(',',':')))
     else:
-        r = {'kind': 'tts', 'name': backend}
+        # Legacy flat format: single file with top-level fields
+        r = {'kind': 'image', 'name': image}
+        r.update(image_entry)
+        records.append(json.dumps(r, separators=(',',':')))
+
+# Handle TTS backends in either the new subdir->list format or legacy flat format.
+if backend_entry:
+    if 'files' in backend_entry:
+        for subdir, file_list in backend_entry['files'].items():
+            if isinstance(file_list, list):
+                for fmeta in file_list:
+                    r = {'kind': 'tts', 'name': backend_name, 'subdir': subdir}
+                    r.update(fmeta)
+                    records.append(json.dumps(r, separators=(',',':')))
+            elif isinstance(file_list, dict):
+                r = {'kind': 'tts', 'name': backend_name, 'subdir': subdir}
+                r.update(file_list)
+                records.append(json.dumps(r, separators=(',',':')))
+    else:
+        r = {'kind': 'tts', 'name': backend_name}
         r.update(backend_entry)
         records.append(json.dumps(r, separators=(',',':')))
+
 print('\n'.join(records))
 " "$config" "$image" "$backend"
 }
@@ -407,7 +444,7 @@ acquire_models() {
     local image="${3:?image model required}" backend="${4:?TTS backend required}"
     local dry_run="${5:-false}" state_root="${6:-}"
 
-    local records=() record kind name source revision filename minimum required checksum path part size status checksum_status
+    local records=() record kind name source revision filename subdir minimum required checksum path part size status checksum_status
     local free_kb free_bytes required_bytes state_models=""
     local -a model_entries=()
     local records_output
@@ -423,14 +460,22 @@ acquire_models() {
         source=$(_model_record_field "$record" source)
         revision=$(_model_record_field "$record" revision)
         filename=$(_model_record_field "$record" filename)
+        subdir=$(_model_record_field "$record" subdir)
         minimum=$(_model_record_field "$record" minimum_size_bytes)
         required=$(_model_record_field "$record" required)
         checksum=$(_model_record_field "$record" checksum)
 
-        path=$(_model_path_safe "$root" "$filename") || {
-            printf 'model: unsafe expected path: %s\n' "$filename" >&2
-            return 1
-        }
+        if [[ -n "$subdir" ]]; then
+            path=$(_model_path_safe "$root/$subdir" "$filename") || {
+                printf 'model: unsafe expected path: %s/%s\n' "$subdir" "$filename" >&2
+                return 1
+            }
+        else
+            path=$(_model_path_safe "$root" "$filename") || {
+                printf 'model: unsafe expected path: %s\n' "$filename" >&2
+                return 1
+            }
+        fi
         part="$path.part"
 
         if [[ "$dry_run" == true ]]; then
@@ -1111,4 +1156,284 @@ do_cleanup() {
             fi
         done
     fi
+}
+
+# ---------------------------------------------------------------------------
+# Feature selection from profile or interactive stdin
+# ---------------------------------------------------------------------------
+
+# Resolve enabled features for a profile.
+# Signature: select_features CONFIG PROFILE
+# Returns: space-separated feature list (e.g., "photo video voice")
+# Exit 0 on success, non-zero on failure.
+#
+# Resolution order:
+#   1. Look up PROFILE in config "profiles" section; use its "features" array.
+#   2. Non-interactive (stdin not a terminal) → default to "photo".
+#   3. Interactive → prompt user to select 1/photo, 2/video, 3/voice.
+#
+select_features() {
+    local config="${1:?CONFIG required}"
+    local profile="${2:?PROFILE required}"
+
+    # Validate config exists
+    if [[ ! -f "$config" ]]; then
+        printf 'select_features: config not found: %s\n' "$config" >&2
+        return 1
+    fi
+
+    local features=()
+
+    # Extract features array for this profile using python3
+    local feature_list
+    feature_list="$(command python3 -c '
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+p = cfg.get("profiles", {}).get(sys.argv[2], {})
+fs = p.get("features", [])
+print(json.dumps(fs))
+' "$config" "$profile" 2>/dev/null)"
+
+    if [[ -n "$feature_list" && "$feature_list" != "null" ]]; then
+        while IFS= read -r item; do
+            [[ -n "$item" ]] && features+=("$item")
+        done < <(printf '%s' "$feature_list" | python3 -c "
+import sys, json
+data = json.loads(sys.stdin.read())
+if isinstance(data, list):
+    for x in data:
+        print(x)
+" 2>/dev/null)
+        if [[ "${#features[@]}" -gt 0 ]]; then
+            printf '%s\n' "${features[*]}"
+            return 0
+        fi
+    fi
+
+    # Profile not found or has no features — fall back to non-interactive/interactive
+    if [[ -t 0 ]]; then
+        # Interactive: prompt user
+        printf 'Select features to enable:\n' >&2
+        printf '  1) photo\n' >&2
+        printf '  2) video\n' >&2
+        printf '  3) voice\n' >&2
+        printf 'Enter choice(s) separated by spaces (1-3): ' >&2
+        local input
+        IFS= read -r input <&0 || true
+        features=()
+        if [[ -n "$input" ]]; then
+            local sel
+            for sel in $input; do
+                case "$sel" in
+                    1) features+=("photo") ;;
+                    2) features+=("video") ;;
+                    3) features+=("voice") ;;
+                esac
+            done
+        fi
+    else
+        # Non-interactive: default to photo
+        features=("photo")
+    fi
+
+    if [[ "${#features[@]}" -eq 0 ]]; then
+        printf 'select_features: no features selected\n' >&2
+        return 1
+    fi
+
+    printf '%s\n' "${features[*]}"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Provider selection — local vs remote
+# ---------------------------------------------------------------------------
+
+# Capitalise first character (used by interactive prompts).
+capitalize() {
+    local s="$1"
+    printf '%s\n' "$(printf '%s' "${s:0:1}" | tr '[:lower:]' '[:upper:]')${s:1}"
+}
+
+# Resolve the provider for a given category.
+# Signature: select_provider CONFIG CATEGORY PROFILE [CLI_PROVIDER]
+# Returns: 'local' or 'remote'
+# Exit 0 on success, non-zero on failure.
+#
+# Resolution order:
+#   1. CLI override (4th arg) — highest priority.
+#   2. Profile default from config "profiles" section — defaults to 'local'.
+#   3. Non-interactive (stdin not a terminal) — defaults to 'local'.
+#   4. Interactive — prompt 1=local, 2=remote.
+#
+select_provider() {
+    local config="${1:?CONFIG required}"
+    local category="${2:?CATEGORY required}"
+    local profile="${3:-}"
+    local cli_provider="${4:-}"
+
+    # Validate config exists
+    if [[ ! -f "$config" ]]; then
+        printf 'select_provider: config not found: %s\n' "$config" >&2
+        return 1
+    fi
+
+    # 1. CLI override takes priority
+    if [[ -n "$cli_provider" ]]; then
+        printf '%s\n' "$cli_provider"
+        return 0
+    fi
+
+    # 2. Profile default — defaults to 'local'
+    if [[ -n "$profile" ]]; then
+        local provider
+        provider="$(python3 -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+profile_name = sys.argv[2]
+category = sys.argv[3]
+p = cfg.get('profiles', {}).get(profile_name, {})
+# Profile-level provider override, fall back to 'local'
+print(p.get('provider', 'local'))
+" "$config" "$profile" "$category")"
+        printf '%s\n' "$provider"
+        return 0
+    fi
+
+    # 3. Non-interactive — default to 'local'
+    if [[ ! -t 0 ]]; then
+        printf 'local\n'
+        return 0
+    fi
+
+    # 4. Interactive prompt
+    printf '\n%s provider:\n' "$(capitalize "$category")" >&2
+    printf '  1) Local ComfyUI (requires GPU, local models)\n' >&2
+    printf '  2) Remote API (cloud inference)\n' >&2
+    printf 'Select [1-2]: ' >&2
+
+    local choice
+    IFS= read -r choice || choice="1"
+    case "$choice" in
+        1) printf 'local\n' ;;
+        2) printf 'remote\n' ;;
+        *) printf 'local\n' ;;
+    esac
+    return 0
+}
+
+# select_model CATEGORY CONFIG PROFILE [CLI_MODEL]
+# Returns the selected model key for a category.
+# Resolution order: CLI override > profile default > non-interactive first
+#   > interactive catalog selection from stdin.
+select_model() {
+    local config="${1:?config required}"
+    local category="${2:?category required}"
+    local profile="${3:-}"
+    local cli_model="${4:-}"
+
+    # Validate config exists
+    if [[ ! -f "$config" ]]; then
+        printf 'select_model: config not found: %s\n' "$config" >&2
+        return 1
+    fi
+
+    # 1. CLI override takes priority
+    if [[ -n "$cli_model" ]]; then
+        local valid
+        valid=$(python3 -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+models = cfg.get('models', {})
+cli = sys.argv[2]
+if cli in models:
+    print(cli)
+" "$config" "$cli_model")
+        if [[ -n "$valid" ]]; then
+            printf '%s\n' "$valid"
+            return 0
+        fi
+        printf 'unknown model: %s\n' "$cli_model" >&2
+        return 1
+    fi
+
+    # 2. Profile default
+    if [[ -n "$profile" ]]; then
+        local profile_key
+        case "$category" in
+            photo) profile_key="photo_model" ;;
+            video) profile_key="video_model" ;;
+            *) profile_key="tts_backend" ;;
+        esac
+        local model
+        model=$(python3 -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+p = cfg.get('profiles', {}).get(sys.argv[2], {})
+print(p.get(sys.argv[3], ''))
+" "$config" "$profile" "$profile_key")
+        if [[ -n "$model" ]]; then
+            printf '%s\n' "$model"
+            return 0
+        fi
+    fi
+
+    # 3. Non-interactive default (first model in category)
+    if [[ ! -t 0 ]]; then
+        local default_model
+        default_model=$(python3 -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+category = sys.argv[2]
+if category == 'voice':
+    backends = cfg.get('features', {}).get('voice', {}).get('backends', [])
+else:
+    models_list = cfg.get('features', {}).get(category, {}).get('models', [])
+if models_list:
+    print(models_list[0])
+" "$config" "$category")
+        printf '%s\n' "$default_model"
+        return 0
+    fi
+
+    # 4. Interactive catalog
+    local catalog_output
+    catalog_output=$(python3 -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+category = sys.argv[2]
+if category == 'voice':
+    backends = cfg.get('features', {}).get('voice', {}).get('backends', [])
+    models = [(b, cfg.get('models', {}).get(b, {})) for b in backends]
+else:
+    models_list = cfg.get('features', {}).get(category, {}).get('models', [])
+    models = [(m, cfg.get('models', {}).get(m, {})) for m in models_list]
+
+for i, (key, meta) in enumerate(models, 1):
+    name = meta.get('name', key)
+    desc = meta.get('description', f'{category}, {meta.get(\"vram_min_gb\", \"?\")}GB VRAM')
+    print(f'{i}) {key} - {name}')
+" "$config" "$category")
+
+    printf '\n%s models:\n' "$(capitalize "$category")" >&2
+    printf '%s\n' "$catalog_output" >&2
+    printf 'Select: ' >&2
+
+    local choice
+    IFS= read -r choice || choice="1"
+
+    python3 -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+category = sys.argv[2]
+choice = int(sys.argv[3])
+if category == 'voice':
+    backends = cfg.get('features', {}).get('voice', {}).get('backends', [])
+else:
+    models_list = cfg.get('features', {}).get(category, {}).get('models', [])
+models = backends if category == 'voice' else models_list
+if 1 <= choice <= len(models):
+    print(models[choice - 1])
+" "$config" "$category" "$choice"
+    return 0
 }

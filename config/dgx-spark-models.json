@@ -1,34 +1,129 @@
 {
-  "juggernaut-xl-v10": {
-    "source": "https://civitai.com/api/download/models/1296965",
-    "revision": "v10",
-    "filename": "juggernautXL_v10.safetensors",
-    "minimum_size_bytes": 6650000000,
-    "required": true,
-    "checksum": "sha256:a7998502176431e30841e9253ed9a81e3b1f2a87061f72983d7e41b6d822b220"
+  "features": ["photo", "video", "voice"],
+  "profiles": {
+    "minimal": {
+      "label": "Photo only (minimal)",
+      "features": ["photo"],
+      "photo_model": "juggernaut-xl-v10",
+      "tts_backend": "piper"
+    },
+    "media": {
+      "label": "Photo + Video (media)",
+      "features": ["photo", "video"],
+      "photo_model": "juggernaut-xl-v10",
+      "video_model": "wan2gp-i2v-14B",
+      "tts_backend": "piper"
+    },
+    "assistant": {
+      "label": "Photo + Video + Voice (assistant)",
+      "features": ["photo", "video", "voice"],
+      "photo_model": "juggernaut-xl-v10",
+      "video_model": "wan2gp-i2v-14B",
+      "tts_backend": "kokoro"
+    },
+    "all": {
+      "label": "All features",
+      "features": ["photo", "video", "voice"],
+      "photo_model": "juggernaut-xl-v10",
+      "video_model": "wan2gp-i2v-14B",
+      "tts_backend": "kokoro"
+    }
   },
-  "piper-voice": {
-    "source": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium",
-    "revision": "lessac-medium",
-    "filename": "lessac-medium.onnx",
-    "minimum_size_bytes": 60000000,
-    "required": true,
-    "checksum": null
-  },
-  "piper-voice-json": {
-    "source": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/config.json",
-    "revision": "lessac-medium",
-    "filename": "lessac-medium.onnx.json",
-    "minimum_size_bytes": 1000,
-    "required": true,
-    "checksum": null
-  },
-  "stability-ai-sdxl-turbo": {
-    "source": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors",
-    "revision": "1.0",
-    "filename": "sdxl_turbo_fp16.safetensors",
-    "minimum_size_bytes": 2500000000,
-    "required": false,
-    "checksum": null
+  "models": {
+    "juggernaut-xl-v10": {
+      "source": "https://civitai.com/api/download/models/1296965",
+      "revision": "v10",
+      "files": {
+        "diffusion_models": [
+          {
+            "source": "https://civitai.com/api/download/models/1296965",
+            "filename": "juggernautXL_v10.safetensors",
+            "minimum_size_bytes": 6650000000,
+            "required": true,
+            "checksum": "sha256:a7998502176431e30841e9253ed9a81e3b1f2a87061f72983d7e41b6d822b220"
+          }
+        ]
+      },
+      "minimum_size_bytes": 6650000000,
+      "required": true
+    },
+    "piper-voice": {
+      "source": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium",
+      "revision": "lessac-medium",
+      "files": {
+        "checkpoints": [
+          {
+            "source": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium",
+            "filename": "lessac-medium.onnx",
+            "minimum_size_bytes": 60000000,
+            "required": true,
+            "checksum": null
+          }
+        ],
+        "text_encoders": [
+          {
+            "source": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/config.json",
+            "filename": "lessac-medium.onnx.json",
+            "minimum_size_bytes": 1000,
+            "required": true,
+            "checksum": null
+          }
+        ]
+      },
+      "minimum_size_bytes": 60000000,
+      "required": true
+    },
+    "stability-ai-sdxl-turbo": {
+      "source": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors",
+      "revision": "1.0",
+      "filename": "sd_xl_turbo_fp16.safetensors",
+      "minimum_size_bytes": 2500000000,
+      "required": false,
+      "checksum": null
+    },
+    "wan2gp-i2v-14B": {
+      "source": "https://huggingface.co",
+      "revision": "14B",
+      "files": {
+        "diffusion_models": [
+          {
+            "source": "https://huggingface.co/Wan-AI/Wan2.1-GP-i2v-14B/resolve/main/diffusion_models/diffusion_transformer_480b.safetensors",
+            "filename": "diffusion_transformer_480b.safetensors",
+            "minimum_size_bytes": 9200000000,
+            "required": true,
+            "checksum": null
+          }
+        ],
+        "text_encoders": [
+          {
+            "source": "https://huggingface.co/Wan-AI/Wan2.1-GP-i2v-14B/resolve/main/text_encoders",
+            "filename": "llava_llama3_fp16.safetensors",
+            "minimum_size_bytes": 900000000,
+            "required": true,
+            "checksum": null
+          }
+        ],
+        "vae": [
+          {
+            "source": "https://huggingface.co/Wan-AI/Wan2.1-GP-i2v-14B/resolve/main/vae/diffusion_pytorch_model.safetensors",
+            "filename": "diffusion_pytorch_model.safetensors",
+            "minimum_size_bytes": 460000000,
+            "required": true,
+            "checksum": null
+          }
+        ],
+        "clip_vision": [
+          {
+            "source": "https://huggingface.co/Wan-AI/Wan2.1-GP-i2v-14B/resolve/main/clip_vision/model.safetensors",
+            "filename": "model.safetensors",
+            "minimum_size_bytes": 460000000,
+            "required": true,
+            "checksum": null
+          }
+        ]
+      },
+      "minimum_size_bytes": 11000000000,
+      "required": true
+    }
   }
 }

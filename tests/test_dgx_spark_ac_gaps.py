@@ -16,6 +16,70 @@ LIB = ROOT / "scripts" / "deploy-dgx-spark-lib.sh"
 CLI = ROOT / "scripts" / "deploy-dgx-spark.sh"
 
 
+@pytest.fixture
+def config_path(tmp_path):
+    """Create a minimal DGX Spark config with features, profiles, and models."""
+    cfg = {
+        "features": {
+            "photo": {
+                "description": "Photo generation",
+                "models": ["flux1-dev-fp8", "juggernaut-xl-v10", "stability-ai-sdxl-turbo"],
+            },
+            "video": {
+                "description": "Video generation",
+                "models": ["wan2gp-i2v-14B"],
+            },
+            "voice": {
+                "description": "Voice synthesis",
+                "backends": ["piper", "kokoro", "xtts-v2", "vllm"],
+            },
+        },
+        "profiles": {
+            "minimal": {
+                "features": ["photo"],
+                "provider": "local",
+                "photo_model": "juggernaut-xl-v10",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "piper",
+            },
+            "media": {
+                "features": ["photo", "video"],
+                "provider": "local",
+                "photo_model": "juggernaut-xl-v10",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "piper",
+            },
+            "assistant": {
+                "features": ["photo", "video", "voice"],
+                "provider": "remote",
+                "photo_model": "flux1-dev-fp8",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "kokoro",
+            },
+            "all": {
+                "features": ["photo", "video", "voice"],
+                "provider": "remote",
+                "photo_model": "juggernaut-xl-v10",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "piper",
+            },
+        },
+        "models": {
+            "flux1-dev-fp8": {"description": "FLUX.1 Dev FP8"},
+            "juggernaut-xl-v10": {"description": "Juggernaut XL v10"},
+            "stability-ai-sdxl-turbo": {"description": "SDXL Turbo"},
+            "wan2gp-i2v-14B": {"description": "Wan2GP I2V 14B"},
+            "piper": {"description": "Piper TTS"},
+            "kokoro": {"description": "Kokoro TTS"},
+            "xtts-v2": {"description": "XTTS v2"},
+            "vllm": {"description": "vLLM TTS"},
+        },
+    }
+    path = tmp_path / "dgx-spark-models.json"
+    path.write_text(json.dumps(cfg))
+    return str(path)
+
+
 def _install_fake_runtime(root, env):
     """Create a minimal virtualenv with python and pip."""
     python = root / ".venv" / "bin" / "python"
@@ -466,3 +530,105 @@ def test_docker_compose_scaffold_has_service_defs(tmp_path):
     assert compose.exists()
     content = compose.read_text()
     assert "services" in content.lower()
+
+
+# ====================================================================
+# select_provider — local vs remote resolution
+# ====================================================================
+
+def test_select_provider_from_profile(config_path):
+    """select_provider returns 'local' for media profile photo category."""
+    result = bash(
+        f'select_provider "{config_path}" photo media',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "local"
+
+
+def test_select_provider_interactive(config_path):
+    """select_provider returns 'remote' when user selects 2 interactively."""
+    # Use script to give a real PTY so [[ -t 0 ]] is true.
+    # Source the lib *inside* the script subshell so the function is available.
+    full = (
+        'script -q -c '
+        f'"source {LIB} && select_provider \\"{config_path}\\" video" '
+        '< /dev/null | tr -d "\\r"\n'
+    )
+    result = subprocess.run(
+        ["bash", "-c", full],
+        capture_output=True, text=True,
+        timeout=30,
+    )
+    # script may append "Script done." — grab just the function output
+    lines = [l for l in result.stdout.strip().splitlines() if l not in ("Script started.", "Script done.")]
+    output = "\n".join(lines).strip()
+    assert result.returncode == 0, f"stderr={result.stderr}"
+    assert output.endswith("remote"), f"Expected 'remote', got: {output}"
+
+
+def test_select_provider_cli_override(config_path):
+    """select_provider returns the 4th arg (CLI override) regardless of profile."""
+    result = bash(
+        f'select_provider "{config_path}" photo media remote',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "remote"
+
+
+# ====================================================================
+# select_model — model resolution from profiles, interactive, defaults
+# ====================================================================
+
+def test_select_model_from_profile_photo(config_path):
+    """select_model returns 'juggernaut-xl-v10' for photo with media profile."""
+    result = bash(
+        f'select_model "{config_path}" photo media',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "juggernaut-xl-v10"
+
+
+def test_select_model_from_profile_video(config_path):
+    """select_model returns 'wan2gp-i2v-14B' for video with media profile."""
+    result = bash(
+        f'select_model "{config_path}" video media',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "wan2gp-i2v-14B"
+
+
+def test_select_model_interactive(config_path):
+    """select_model returns second model when user selects '2' interactively."""
+    full = (
+        'script -q -c '
+        f'"source {LIB} && select_model \\"{config_path}\\\" photo" '
+        '< /dev/null <<< \"2\"\n'
+    )
+    result = subprocess.run(
+        ["bash", "-c", full],
+        capture_output=True, text=True,
+        timeout=30,
+    )
+    lines = [l for l in result.stdout.strip().splitlines() if l not in ("Script started.", "Script done.")]
+    # Last meaningful line is the selected model
+    output = lines[-1].strip() if lines else ""
+    assert result.returncode == 0, f"stderr={result.stderr}"
+    assert output == "Select: juggernaut-xl-v10", f"Expected 'Select: juggernaut-xl-v10', got: {output}"
+
+
+def test_select_model_non_interactive_default(config_path):
+    """select_model returns first model in category when no stdin and no profile."""
+    result = bash(
+        f'select_model "{config_path}" photo ""',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "flux1-dev-fp8"
+
+
+def test_select_model_cli_override(config_path):
+    """select_model returns the model key when passed as CLI override."""
+    result = bash(
+        f'select_model "{config_path}" photo media "stability-ai-sdxl-turbo"',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "stability-ai-sdxl-turbo"
