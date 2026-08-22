@@ -910,3 +910,61 @@ def test_redaction_handles_non_clawdess_secret_file_names(tmp_path):
     result = bash(f"redact_text 'file-secret {secret_file} do-not-redact'", env=env)
     assert result.returncode == 0
     assert result.stdout.strip() == "<REDACTED> <REDACTED> do-not-redact"
+
+
+def test_profile_media_dry_run_accepts_space_separated_features(tmp_path):
+    deploy_root = tmp_path / "deployment"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'")
+    (fake_bin / "nvidia-smi").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"}
+    result = subprocess.run(["bash", str(CLI), "--profile", "media", "--deploy-root", str(deploy_root), "--dry-run", "--non-interactive"], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "model planned: image" in result.stdout
+    assert "model planned: video" in result.stdout
+
+
+def test_state_write_preserves_selection_fields_on_later_transition(tmp_path):
+    state_root = tmp_path / "deployment"
+    selection = json.dumps({"selected_features": ["photo", "video"], "provider": "local", "image_model": "image-a", "video_model": "video-a", "tts_backend": "voice-a"}, separators=(",", ":"))
+    first = bash(f"state_write '{state_root}' models planned '' planned '{selection}'")
+    assert first.returncode == 0, first.stderr
+    later = bash(f"state_write '{state_root}' startup healthy '' running")
+    assert later.returncode == 0, later.stderr
+    state = json.loads((state_root / "state" / "deployment-state.json").read_text())
+    assert state["state"] == "running"
+    assert state["selected_features"] == ["photo", "video"]
+    assert state["provider"] == "local"
+    assert state["image_model"] == "image-a"
+    assert state["video_model"] == "video-a"
+    assert state["tts_backend"] == "voice-a"
+
+
+def test_model_records_requires_nested_schema_for_image_video_and_voice(tmp_path):
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": {"image": {"files": {"diffusion_models": [{"source": "u", "filename": "i", "minimum_size_bytes": 1, "required": True, "checksum": None}]}}, "video": {"files": {"vae": [{"source": "u", "filename": "v", "minimum_size_bytes": 1, "required": True}]}}, "voice": {"files": {"checkpoints": [{"source": "u", "filename": "t", "minimum_size_bytes": 1, "required": True, "checksum": None}]}}}}))
+    for selected, backend in (("image", "missing"), ("video", "missing"), ("missing", "voice")):
+        result = bash(f'model_records "{config}" "{selected}" "{backend}" "{selected}"')
+        assert result.returncode != 0, result.stdout + result.stderr
+
+
+def test_model_records_emits_explicit_destination_for_nested_records(tmp_path):
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": {"image": {"files": {"diffusion_models": [{"source": "u", "filename": "i", "minimum_size_bytes": 1, "required": True, "checksum": None, "destination": "diffusion_models"}]}}, "video": {"files": {"vae": [{"source": "u", "filename": "v", "minimum_size_bytes": 1, "required": True, "checksum": None, "destination": "vae"}]}}, "voice": {"files": {"checkpoints": [{"source": "u", "filename": "t", "minimum_size_bytes": 1, "required": True, "checksum": None, "destination": "checkpoints"}]}}}}))
+    result = bash(f'model_records "{config}" "image" "voice" "video"')
+    assert result.returncode == 0, result.stderr
+    records = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert records and all(record["destination"] == record["subdir"] for record in records)
+
+
+def test_cli_local_video_provisioning_call_is_feature_gated_and_ordered():
+    content = CLI.read_text()
+    call = 'provision_video "$DEPLOY_ROOT" "$STATE_ROOT" "$PROVIDER" "$VIDEO_MODEL" "$CONFIG" "$DRY_RUN"'
+    assert call in content
+    acquire = content.index('acquire_models "$MODEL_ROOT"')
+    provision = content.index(call)
+    tts = content.index('# Phase 6: TTS installation')
+    assert acquire < provision < tts
+    assert '[[ "$PROVIDER" != "remote" ]]' in content[provision - 300:provision]
+    assert '(^|[[:space:],])video([[:space:],]|$)' in content[provision - 300:provision]

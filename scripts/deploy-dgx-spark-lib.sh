@@ -112,6 +112,7 @@ state_write() {
     local phase="${2:?phase required}"
     local reason="${3:?reason required}"
     local extra="${4:-}"
+    local selection="${6:-}"
 
     local state_dir="$deploy_root/state"
     mkdir -p -- "$state_dir"
@@ -132,10 +133,10 @@ existing = json.loads(sys.argv[1]) if sys.argv[1] else {}
 desired_state = None
 if len(sys.argv) > 5 and sys.argv[5]:
     desired_state = sys.argv[5]
-if existing.get('state') and existing.get('state') != 'failed':
-    state_val = existing['state']
-elif desired_state:
+if desired_state:
     state_val = desired_state
+elif existing.get('state') and existing.get('state') != 'failed':
+    state_val = existing['state']
 else:
     state_val = 'failed'
 state = {
@@ -144,12 +145,16 @@ state = {
     'error': sys.argv[3],
 }
 if existing:
-    for k in ('models', 'venv', 'comfyui', 'tts'):
+    for k in ('models', 'venv', 'comfyui', 'tts',
+              'selected_features', 'provider', 'image_model',
+              'video_model', 'tts_backend'):
         if k in existing:
             state[k] = existing[k]
 state['models'] = json.loads(sys.argv[4]) if sys.argv[4] else existing.get('models', [])
+if len(sys.argv) > 6 and sys.argv[6]:
+    state.update(json.loads(sys.argv[6]))
 print(json.dumps(state, separators=(',',':')))
-" "$existing_state" "$phase" "$(redact_text "$reason")" "$extra" "${5:-}")"; then
+" "$existing_state" "$phase" "$(redact_text "$reason")" "$extra" "${5:-}" "${6:-}")"; then
         printf 'state: failed to construct JSON payload\n' >&2
         return 1
     fi
@@ -373,12 +378,14 @@ _model_validate() {
 # text_encoders, clip_vision, vae, etc.), each containing a list of file entries with
 # source, filename, minimum_size_bytes, required, checksum.
 model_records() {
-    local config="${1:?config required}" image="${2:?image required}" backend="${3:?backend required}" video="${4:-}"
+    local config="${1:?config required}" image="${2:-}" backend="${3:-}" video="${4:-}" features="${5:-photo,voice}"
     command python3 -c "
 import json, sys
 cfg = json.load(open(sys.argv[1]))
 image = sys.argv[2]
 backend = sys.argv[3]
+video = sys.argv[4]
+features = {x.strip() for x in __import__('re').split(r'[\s,]+', sys.argv[5]) if x.strip()}
 
 image_entry = cfg.get('models', {}).get(image, cfg.get(image, {}))
 # Preserve the legacy CLI backend names while using the new catalog keys.
@@ -399,56 +406,46 @@ for candidate in backend_candidates:
 
 records = []
 
-# Handle image models: support both flat (single-file) and nested files format
-if image_entry:
-    if 'files' in image_entry:
-        # New nested format: subdir -> list of file entries
-        for subdir, file_list in image_entry['files'].items():
-            if isinstance(file_list, list):
-                for fmeta in file_list:
-                    r = {'kind': 'image', 'name': image, 'subdir': subdir}
-                    r.update(fmeta)
-                    records.append(json.dumps(r, separators=(',',':')))
-    else:
-        # Legacy flat format: single file with top-level fields
-        r = {'kind': 'image', 'name': image}
-        r.update(image_entry)
-        records.append(json.dumps(r, separators=(',',':')))
+def nested_record(kind, name, subdir, fmeta):
+    if not isinstance(fmeta, dict): raise ValueError('invalid model record')
+    required = ('source', 'filename', 'minimum_size_bytes', 'required', 'checksum', 'destination')
+    if any(key not in fmeta for key in required): raise ValueError('invalid model record')
+    destination = fmeta['destination']
+    if not isinstance(destination, str) or not destination or destination.startswith('/') or '..' in destination.split('/'):
+        raise ValueError('invalid destination')
+    r = {'kind': kind, 'name': name}; r.update(fmeta); r['subdir'] = destination
+    records.append(json.dumps(r, separators=(',',':')))
+def nested_records(kind, name, entry):
+    for subdir, file_list in entry['files'].items():
+        for fmeta in (file_list if isinstance(file_list, list) else [file_list]): nested_record(kind, name, subdir, fmeta)
 
-# Handle TTS backends in either the new subdir->list format or legacy flat format.
-if backend_entry:
-    if 'files' in backend_entry:
-        for subdir, file_list in backend_entry['files'].items():
-            if isinstance(file_list, list):
-                for fmeta in file_list:
-                    r = {'kind': 'tts', 'name': backend_name, 'subdir': subdir}
-                    r.update(fmeta)
-                    records.append(json.dumps(r, separators=(',',':')))
-            elif isinstance(file_list, dict):
-                r = {'kind': 'tts', 'name': backend_name, 'subdir': subdir}
-                r.update(file_list)
-                records.append(json.dumps(r, separators=(',',':')))
+def emit(kind, name, entry, feature):
+    if feature not in features or not entry: return
+    if 'files' in entry: nested_records(kind, name, entry)
     else:
-        r = {'kind': 'tts', 'name': backend_name}
-        r.update(backend_entry)
-        records.append(json.dumps(r, separators=(',',':')))
+        r = {'kind': kind, 'name': name}; r.update(entry); records.append(json.dumps(r, separators=(',',':')))
+
+video_entry = cfg.get('models', {}).get(video, cfg.get(video, {})) if video else {}
+emit('image', image, image_entry, 'photo')
+emit('video', video, video_entry, 'video')
+emit('tts', backend_name, backend_entry, 'voice')
 
 print('\\n'.join(records))
-" "$config" "$image" "$backend" "$video"
+" "$config" "$image" "$backend" "$video" "$features"
 }
 
 # acquire_models ROOT CONFIG IMAGE BACKEND DRY_RUN STATE_ROOT
 # Acquire all model records. On failure, persists state=failed.
 acquire_models() {
     local root="${1:?model root required}" config="${2:?model config required}"
-    local image="${3:?image model required}" backend="${4:?TTS backend required}"
-    local dry_run="${5:-false}" state_root="${6:-}"
+    local image="${3:-}" backend="${4:-}"
+    local dry_run="${5:-false}" state_root="${6:-}" features="${7:-photo,voice}" video="${8:-}"
 
     local records=() record kind name source revision filename subdir minimum required checksum path part size status checksum_status
     local free_kb free_bytes required_bytes state_models=""
     local -a model_entries=()
     local records_output
-    records_output="$(model_records "$config" "$image" "$backend")" || return 1
+    records_output="$(model_records "$config" "$image" "$backend" "$video" "$features")" || return 1
     [[ -n "$records_output" ]] || { printf 'model: no selected records\n' >&2; return 1; }
     mapfile -t records <<< "$records_output"
     ((${#records[@]} > 0)) || { printf 'model: no selected records\n' >&2; return 1; }
@@ -460,7 +457,7 @@ acquire_models() {
         source=$(_model_record_field "$record" source)
         revision=$(_model_record_field "$record" revision)
         filename=$(_model_record_field "$record" filename)
-        subdir=$(_model_record_field "$record" subdir)
+        subdir=$(_model_record_field "$record" destination)
         minimum=$(_model_record_field "$record" minimum_size_bytes)
         required=$(_model_record_field "$record" required)
         checksum=$(_model_record_field "$record" checksum)
@@ -651,14 +648,85 @@ install_comfyui() {
 }
 
 # ---------------------------------------------------------------------------
+# Local video provisioning seam
+# ---------------------------------------------------------------------------
+provision_local_video() {
+    local deploy_root="${1:?deploy root required}" state_root="${2:?state root required}" model="${3:?video model required}" config="${4:?config required}" dry_run="${5:-false}"
+    local manifest="$deploy_root/config/video-local.json"
+    local payload
+    payload="$(python3 - "$deploy_root" "$model" "$config" <<'PYJSON'
+import json,sys
+root,model,config=sys.argv[1:]
+entry=json.load(open(config)).get("models",{}).get(model,{})
+files=entry.get("files",{})
+deps={k:f"{root}/models/{k}" for k in ("diffusion_models","text_encoders","vae","clip_vision") if k in files}
+print(json.dumps({"provider":"local","model":model,"status":"deferred","reason":"Wan2GP/ComfyUI runtime and custom-node revisions are not pinned; installation deferred","model_root":f"{root}/models","dependencies":deps},separators=(",",":")))
+PYJSON
+)"
+    if [[ "$dry_run" == true ]]; then printf 'video: local provisioning deferred (dry-run; no files written)
+'; return 0; fi
+    mkdir -p "$deploy_root/config" "$deploy_root/bin" "$deploy_root/run" "$deploy_root/logs"
+    json_write_atomic "$manifest" "$payload"
+    printf '#!/usr/bin/env bash
+printf "video: local runtime deferred; start unavailable\n" >&2
+exit 2
+' > "$deploy_root/bin/start-video"
+    printf '#!/usr/bin/env bash
+rm -f "$(dirname "$0")/../run/video.pid"
+printf "video: local service stopped (deferred seam)\n"
+' > "$deploy_root/bin/stop-video"
+    chmod +x "$deploy_root/bin/start-video" "$deploy_root/bin/stop-video"
+    printf 'video: local Wan2GP/ComfyUI scaffolded with model dependency paths; runtime installation deferred
+' >&2
+    return 1
+}
+provision_video() {
+    local deploy_root="$1" state_root="$2" provider="$3" model="$4" config="$5" dry_run="${6:-false}"
+    [[ "$provider" == remote ]] && { printf 'video: remote provider selected; skipping local video provisioning
+'; return 0; }
+    provision_local_video "$deploy_root" "$state_root" "$model" "$config" "$dry_run"
+}
+
+# ---------------------------------------------------------------------------
 # TTS helpers
 # ---------------------------------------------------------------------------
+
+# validate_voice_backend CONFIG BACKEND
+validate_voice_backend() {
+    local config="${1:?config required}" requested="${2:?backend required}"
+    python3 - "$config" "$requested" <<'PY'
+import json, sys
+cfg=json.load(open(sys.argv[1])); requested=sys.argv[2].lower()
+aliases={'piper-voice':'piper','xtts':'xtts-v2', **cfg.get('aliases',{})}
+backend=requested
+if backend == 'piper-voice': backend='piper'
+else: backend=aliases.get(backend, backend)
+if backend == "piper-voice": backend="piper"
+known=cfg.get('voice_backends', {})
+features=cfg.get('features',{})
+voice_feature=features.get('voice',{}) if isinstance(features, dict) else {}
+allowed=voice_feature.get('backends',[]) if isinstance(voice_feature, dict) else []
+if backend == 'vllm' or (backend not in known and backend not in allowed and backend not in {'piper','kokoro','xtts-v2'}):
+ print(f"voice: unsupported backend: {requested}", file=sys.stderr); raise SystemExit(1)
+print(backend)
+PY
+}
+
+install_voice_backend() {
+    local backend="${1:?backend required}" venv_python="${2:?venv python required}"
+    case "$backend" in
+      piper|piper-voice) install_piper_tts "$venv_python" ;;
+      kokoro) printf 'tts: kokoro experimental; runtime installation deferred (no dependency/download claimed)\n' >&2; return 1 ;;
+      xtts|xtts-v2) printf 'tts: XTTS v2 deferred; configure speaker_wav before runtime installation\n' >&2; return 1 ;;
+      *) printf 'tts: unsupported voice backend: %s\n' "$backend" >&2; return 1 ;;
+    esac
+}
 
 install_piper_tts() {
     local venv_python="${1:?venv python required}"
 
     # Piper is a Rust-based binary; install via pip
-    "$venv_python" -m pip install --no-cache-dir piper-tts 2>&1 | tail -3 || {
+    "$venv_python" -m pip install --no-cache-dir piper-tts || {
         printf 'tts: piper install failed\n' >&2
         return 1
     }
@@ -968,6 +1036,13 @@ if [[ -f "$SCRIPT_DIR/run/tts.pid" ]]; then
 else
     printf 'TTS (piper): no pid file found (service not started)\n'
     error_count=$((error_count + 1))
+fi
+
+# Check local video registration
+if [[ -f "$SCRIPT_DIR/config/video-local.json" ]]; then
+    video_status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status","unknown"))' "$SCRIPT_DIR/config/video-local.json" 2>/dev/null || echo unknown)"
+    printf 'Video: local provisioning %s\n' "$video_status"
+    [[ "$video_status" == "deferred" ]] && error_count=$((error_count + 1))
 fi
 
 # Check state file

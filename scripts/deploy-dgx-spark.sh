@@ -17,7 +17,10 @@ trap 'status=$?; trap - ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
 # Defaults
 # ---------------------------------------------------------------------------
 PROFILE=""
+FEATURES=""
+PROVIDER=""
 IMAGE_MODEL=""
+VIDEO_MODEL=""
 TTS_BACKEND=""
 DRY_RUN=false
 NON_INTERACTIVE=false
@@ -43,7 +46,10 @@ fi
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --profile) PROFILE="$2"; shift 2 ;;
+        --features) FEATURES="$2"; shift 2 ;;
+        --provider) PROVIDER="$2"; shift 2 ;;
         --image-model) IMAGE_MODEL="$2"; shift 2 ;;
+        --video-model) VIDEO_MODEL="$2"; shift 2 ;;
         --tts-backend) TTS_BACKEND="$2"; shift 2 ;;
         --deploy-root) DEPLOY_ROOT="$2"; shift 2 ;;
         --model-root) MODEL_ROOT="$2"; shift 2 ;;
@@ -53,7 +59,7 @@ while [[ $# -gt 0 ]]; do
         --verbose) VERBOSE=true; shift ;;
         --reset) RESET=true; shift ;;
         --help)
-            printf 'Usage: %s [--profile minimal|media|assistant|all] [--image-model <model>] [--tts-backend <backend>] [--deploy-root <path>] [--model-root <path>] [--dry-run] [--non-interactive] [--verbose] [--reset] [--yes]\n' "$0"
+            printf 'Usage: %s [--profile minimal|media|assistant|all] [--features <list>] [--provider local|remote] [--image-model <model>] [--video-model <model>] [--tts-backend <backend>] [--deploy-root <path>] [--model-root <path>] [--dry-run] [--non-interactive] [--verbose] [--reset] [--yes]\n' "$0"
             exit 0
             ;;
         *)
@@ -227,20 +233,28 @@ fi
 
 # Resolve selections from the profile/catalog while preserving explicit CLI overrides.
 if [[ -n "$PROFILE" ]]; then
-    features="$(select_features "$CONFIG" "$PROFILE")" || { on_error 1 "$LINENO" "feature selection failed"; exit 1; }
+    FEATURES="${FEATURES:-$(select_features "$CONFIG" "$PROFILE")}"
+    PROVIDER="${PROVIDER:-$(select_provider "$CONFIG" photo "$PROFILE")}" || { on_error 1 "$LINENO" "feature selection failed"; exit 1; }
     [[ -n "$IMAGE_MODEL" ]] || IMAGE_MODEL="$(select_model "$CONFIG" photo "$PROFILE")" || { on_error 1 "$LINENO" "image model selection failed"; exit 1; }
+    [[ -n "$VIDEO_MODEL" ]] || VIDEO_MODEL="$(select_model "$CONFIG" video "$PROFILE")"
     [[ -n "$TTS_BACKEND" ]] || TTS_BACKEND="$(select_model "$CONFIG" voice "$PROFILE")" || { on_error 1 "$LINENO" "TTS backend selection failed"; exit 1; }
-    printf 'selection: features=%s image-model=%s tts-backend=%s\n' "$features" "$IMAGE_MODEL" "$TTS_BACKEND"
+    TTS_BACKEND="$(validate_voice_backend "$CONFIG" "$TTS_BACKEND")" || { on_error 1 "$LINENO" "unsupported or deferred voice backend"; exit 1; }
+    printf 'selection: features=%s provider=%s image-model=%s video-model=%s tts-backend=%s\n' "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND"
 fi
 
-if [[ "$DRY_RUN" == true ]]; then
+SELECTION_JSON="$(printf "%s\n" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" | python3 -c 'import json,re,sys; a=sys.stdin.read().splitlines(); print(json.dumps({"selected_features":[x for x in re.split(r"[\s,]+",a[0].strip()) if x],"provider":a[1],"image_model":a[2],"video_model":a[3],"tts_backend":a[4]},separators=(",",":")))')"
+
+if [[ "$PROVIDER" == "remote" ]]; then
+    printf 'remote provider: skipping local model acquisition\n'
+    state_write "$STATE_ROOT" "models" "remote provider selected; local acquisition skipped" "" "planned" "$SELECTION_JSON"
+elif [[ "$DRY_RUN" == true ]]; then
     printf 'dry-run: acquiring models (dry run, no downloads)\n'
-    acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" true "$STATE_ROOT" || {
+    acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" true "$STATE_ROOT" "$FEATURES" "$VIDEO_MODEL" || {
         on_error 1 "$LINENO" "dry-run model planning failed"
         exit 1
     }
     printf 'dry-run: model acquisition complete (no filesystem changes)\n'
-    state_write "$STATE_ROOT" "models" "dry-run model planning complete" "" "planned"
+    state_write "$STATE_ROOT" "models" "dry-run model planning complete" "" "planned" "$SELECTION_JSON"
     printf 'state=planned phase=models\n' >>"$RUN_LOG"
     exit 0
 fi
@@ -254,10 +268,21 @@ if [[ "$free_kb" =~ ^[0-9]+$ && "$free_kb" -lt "$((required_bytes / 1024 / 1024 
     exit 1
 fi
 
-if ! acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" false "$STATE_ROOT"; then
+if [[ "$PROVIDER" != "remote" ]] && ! acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" false "$STATE_ROOT" "$FEATURES" "$VIDEO_MODEL"; then
     on_error 1 "$LINENO" "model acquisition failed"
     exit 1
 fi
+
+
+
+# Provision local video only when the selected feature set includes video.
+if [[ "$PROVIDER" != "remote" ]] && [[ "$FEATURES" =~ (^|[[:space:],])video([[:space:],]|$) ]]; then
+    if ! provision_video "$DEPLOY_ROOT" "$STATE_ROOT" "$PROVIDER" "$VIDEO_MODEL" "$CONFIG" "$DRY_RUN"; then
+        on_error 1 "$LINENO" "video provisioning failed"
+        exit 1
+    fi
+fi
+
 
 # ---------------------------------------------------------------------------
 # Phase 6: TTS installation
@@ -266,7 +291,7 @@ PHASE="tts"
 printf '=== Phase 6: TTS ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
-    install_piper_tts "$VENV_PATH/bin/python" || {
+    install_voice_backend "$TTS_BACKEND" "$VENV_PATH/bin/python" || {
         on_error 1 "$LINENO" "installation failed"
         exit 1
     }
