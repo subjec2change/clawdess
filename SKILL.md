@@ -148,7 +148,7 @@ Follow these steps to get ComfyUI and TTS running on a GB10 DGX Spark host.
 
 - **Hardware**: NVIDIA GB10 GPU (compute capability 12.1)
 - **OS**: Linux (aarch64) with Python 3.11+
-- **Optional**: Docker (required for `media` and `assistant` profiles)
+- **Optional**: Docker (used by deferred non-minimal lifecycle profiles; not required for `minimal` dry runs)
 - **Disk**: At least 8 GB free on the model root filesystem
 - **Network**: Internet access for model downloads (CivitAI, HuggingFace)
 
@@ -174,6 +174,17 @@ Always preview before committing:
 ```
 
 This creates log and state artifacts in `$DEPLOY_ROOT/logs/` without downloading models, creating venvs, or starting services. The state is recorded as `planned`.
+
+### Feature-First Selection
+
+When a profile is supplied, Phase 5 resolves its feature bundle and catalog defaults before acquisition:
+
+- `minimal`: photo + Piper voice, no Docker prerequisite
+- `media`: photo + video + Piper voice; video acquisition is experimental
+- `assistant`: photo + video + Piper voice; local LLM setup is not yet wired
+- `all`: all catalog features; experimental and not recommended for unattended runs
+
+Explicit `--image-model` and `--tts-backend` values override profile defaults. The current catalog supports `juggernaut-xl-v10`, `stability-ai-sdxl-turbo`, `wan2gp-i2v-14B`, and Piper voice files. Video, local LLM, Kokoro, XTTS, and additional diffusion models remain catalog work rather than verified deployment features.
 
 ### Step 3 — Deploy
 
@@ -217,11 +228,11 @@ $DEPLOY_ROOT/bin/status
 | Profile | What it installs | Docker needed? |
 |---------|-----------------|----------------|
 | `minimal` | ComfyUI + Piper TTS (default) | No |
-| `media` | minimal + video dependencies/models | Yes |
-| `assistant` | minimal + local LLM | Yes |
-| `all` | all of the above | Yes |
+| `media` | minimal + experimental video catalog entry | Optional/deferred |
+| `assistant` | minimal + experimental video bundle; no LLM installer yet | Optional/deferred |
+| `all` | all currently cataloged features | Optional/deferred |
 
-`all` prompts for confirmation unless `--yes` is given.
+Non-interactive mode requires `--profile`. Use `--yes` when a future interactive flow requires confirmation; the current non-interactive path resolves profile defaults without prompting.
 
 ### Deploy Root and Model Root
 
