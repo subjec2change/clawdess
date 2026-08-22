@@ -90,7 +90,7 @@ if [[ "$VERBOSE" == true ]]; then printf 'verbose: deploy-root=%s model-root=%s 
 # Cleanup and PID tracking
 # ---------------------------------------------------------------------------
 
-trap 'do_cleanup; status=$?; trap - ERR; on_error "$status" "$LINENO" "cleanup-exit"' EXIT
+trap 'status=$?; trap - EXIT ERR; do_cleanup; if (( status != 0 )); then on_error "$status" "$LINENO" "cleanup-exit"; fi; exit "$status"' EXIT
 
 # ---------------------------------------------------------------------------
 # Phase 1
@@ -240,6 +240,7 @@ if [[ "$DRY_RUN" == true ]]; then
         exit 1
     }
     printf 'dry-run: model acquisition complete (no filesystem changes)\n'
+    state_write "$STATE_ROOT" "models" "dry-run model planning complete" "" "planned"
     printf 'state=planned phase=models\n' >>"$RUN_LOG"
     exit 0
 fi
