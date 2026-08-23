@@ -221,6 +221,11 @@ Or inspect the deployment state:
 $DEPLOY_ROOT/bin/status
 ```
 
+
+## Truthful native video preflight
+
+Run `scripts/check-dgx-video-runtime.sh [DEPLOY_ROOT]` before claiming native GB10 video support. It emits stable `VIDEO_*=` evidence lines and exits nonzero when required host, CUDA, Docker/socket, storage, memory, model, dependency, or state checks fail. Evidence levels are strictly ordered: `preflight` means prerequisites only; `health` additionally requires a real service health response; `artifact` additionally requires recorded state and a non-empty video artifact. Dry-run and planned state never count as health or artifact evidence. The check never downloads credentials or fabricates runtime evidence.
+
 ## How-To
 
 ### Choose a Profile

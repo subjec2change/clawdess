@@ -923,3 +923,20 @@ def test_cli_rejects_remote_non_dry_run_capability_states(tmp_path):
     capability_gate = content[content.index('CAPABILITY_JSON='):content.index('SELECTION_JSON=')]
     assert 'if [[ "$DRY_RUN" != true ]]; then' in capability_gate
     assert '"$PROVIDER" != remote' not in capability_gate
+
+
+def test_video_preflight_reports_machine_readable_missing_runtime(tmp_path):
+    """Video preflight must distinguish missing runtime prerequisites."""
+    script = ROOT / "scripts" / "check-dgx-video-runtime.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    env["CLAWDESS_TEST_DOCKER"] = "missing"
+    result = subprocess.run(["bash", str(script), str(tmp_path / "deployment")], cwd=ROOT, env=env, text=True, capture_output=True, check=False)
+    assert result.returncode != 0
+    lines = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+    assert lines["VIDEO_PREFLIGHT_STATUS"] == "failed"
+    assert lines["VIDEO_DOCKER"] in {"missing", "unavailable"}
+    assert lines["VIDEO_ARTIFACT_EVIDENCE"] == "absent"
