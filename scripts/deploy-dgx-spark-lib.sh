@@ -1245,10 +1245,16 @@ capability_manifest() {
     python3 - "$config" "$features" "$provider" "$image" "$video" "$voice" <<'PY2'
 import json, sys, re
 cfg=json.load(open(sys.argv[1])); selected=[x for x in re.split(r'[\s,]+',sys.argv[2]) if x]
-provider,image,video,voice=sys.argv[3:]; models=cfg.get('models',{}); vb=cfg.get('voice_backends',{}); states={}
+provider,image,video,voice=sys.argv[3:]; models=cfg.get('models',{}); vb=cfg.get('voice_backends',{}); aliases=cfg.get('aliases',{}); states={}
 for feature in selected:
-    name={'photo':image,'video':video,'voice':voice}.get(feature,''); meta=vb.get(name,{}) if feature=='voice' else models.get(name,{})
-    status=meta.get('status') or ('experimental' if meta.get('experimental') else ('verified' if name and name in models else 'unavailable'))
+    name={'photo':image,'video':video,'voice':voice}.get(feature,''); resolved=name
+    seen=set()
+    while feature=='voice' and resolved in aliases and resolved not in seen:
+        seen.add(resolved); resolved=aliases[resolved]
+    meta=vb.get(name,{}) if feature=='voice' else models.get(name,{})
+    if feature=='voice' and not meta:
+        meta=vb.get(resolved,{})
+    status=meta.get('status') or ('experimental' if meta.get('experimental') else ('verified' if resolved and resolved in models else 'unavailable'))
     allowed={'verified','experimental','deferred','unavailable','blocked'}
     if status not in allowed:
         raise SystemExit(f'unknown capability status: {status!r} for {feature}')
@@ -1257,7 +1263,7 @@ for feature in selected:
     local_dependency_applicability = feature in {'video', 'voice'}
     local_dependencies = local_dependency_applicability
     local_dependency_state = 'deferred' if feature == 'video' else ('required' if feature == 'voice' else 'delegated')
-    states[feature]={'state':status,'selected':name,'provider':provider,'local_dependencies':local_dependencies,'local_dependency_applicability':local_dependency_applicability,'local_dependency_state':local_dependency_state}
+    states[feature]={'state':status,'selected':name,'provider':provider,'local_dependencies':local_dependencies,'applicable':local_dependency_applicability,'local_dependency_applicability':local_dependency_applicability,'local_dependency_state':local_dependency_state}
 print(json.dumps({'capability_states':states,'provider':provider,'selected_features':selected,'image_model':image,'video_model':video,'tts_backend':voice},separators=(',',':')))
 PY2
 }

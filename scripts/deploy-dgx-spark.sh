@@ -333,24 +333,28 @@ if [[ "$DRY_RUN" == false ]]; then
     fi
     printf 'startup: ComfyUI is ready\n'
 
-    # Start TTS after ComfyUI is ready
-    printf 'startup: starting TTS...\n'
-    nohup "$VENV_PATH/bin/piper" > "$DEPLOY_ROOT/logs/tts.log" 2>&1 &
-    TTS_PID=$!
-    track_pid "$TTS_PID" "tts"
-    printf 'startup: TTS started (pid %s)\n' "$TTS_PID"
+    # Start TTS after ComfyUI is ready only when voice was selected.
+    if feature_selected "$FEATURES" voice; then
+        printf 'startup: starting TTS...\n'
+        nohup "$VENV_PATH/bin/piper" > "$DEPLOY_ROOT/logs/tts.log" 2>&1 &
+        TTS_PID=$!
+        track_pid "$TTS_PID" "tts"
+        printf 'startup: TTS started (pid %s)\n' "$TTS_PID"
 
-    # Wait for TTS readiness
-    if ! wait_for_tts_ready 30; then
-        printf 'startup: TTS failed readiness, stopping services...\n'
-        kill "$TTS_PID" 2>/dev/null || true
-        rm -f "$DEPLOY_ROOT/run/tts.pid"
-        kill "$COMFYUI_PID" 2>/dev/null || true
-        rm -f "$DEPLOY_ROOT/run/comfyui.pid"
-        state_write "$DEPLOY_ROOT" "startup" "TTS readiness failed" "" "partial"
-        exit 1
+        # Wait for TTS readiness
+        if ! wait_for_tts_ready 30; then
+            printf 'startup: TTS failed readiness, stopping services...\n'
+            kill "$TTS_PID" 2>/dev/null || true
+            rm -f "$DEPLOY_ROOT/run/tts.pid"
+            kill "$COMFYUI_PID" 2>/dev/null || true
+            rm -f "$DEPLOY_ROOT/run/comfyui.pid"
+            state_write "$DEPLOY_ROOT" "startup" "TTS readiness failed" "" "partial"
+            exit 1
+        fi
+        printf 'startup: TTS is ready\n'
+    else
+        printf 'startup: voice feature not selected; TTS startup skipped\n'
     fi
-    printf 'startup: TTS is ready\n'
 
     # Emit running state once all services are healthy
     state_write "$DEPLOY_ROOT" "startup" "all services healthy" "" "running"
