@@ -65,3 +65,12 @@ Unrelated pre-existing untracked files were preserved and not staged.
 - Syntax/whitespace checks passed: `bash -n scripts/deploy-dgx-spark-lib.sh scripts/deploy-dgx-spark.sh && git diff --check`.
 - Implementation commit: `dbc4a4c823977c1139afadfec6523b37d52f440a`.
 - Files: `scripts/deploy-dgx-spark-lib.sh`, `tests/test_dgx_spark_ac_gaps.py`, this report.
+
+
+Task 2 regression follow-up (remote non-dry-run capability rejection)
+- Root cause: deploy-dgx-spark.sh gated capability_reject_non_dry_run behind `DRY_RUN != true && PROVIDER != remote`, allowing remote deferred/unavailable/blocked states to proceed.
+- TDD RED: `.venv/bin/python -m pytest tests/test_dgx_spark_ac_gaps.py -q -k "remote_non_dry_run_capability_states or cli_rejects_remote"` — `1 failed, 3 passed, 50 deselected`; the CLI gate assertion failed against the old remote exception.
+- GREEN: same focused command — `4 passed, 50 deselected in 0.10s`.
+- Regression coverage: parameterized deferred, unavailable, and blocked remote capability rejection; static CLI gate assertion ensures remote is not exempt. Existing remote-success dry-run tests remain green.
+- Full verification: `.venv/bin/python -m pytest tests -q` — `121 passed in 23.13s`; `bash -n scripts/deploy-dgx-spark.sh scripts/deploy-dgx-spark-lib.sh` passed.
+- Modified intended files only: `scripts/deploy-dgx-spark.sh`, `tests/test_dgx_spark_ac_gaps.py`.

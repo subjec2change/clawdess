@@ -906,3 +906,20 @@ def test_failed_capability_state_persists_mapping(tmp_path, config_path):
     state = json.loads((deploy_root / "state" / "deployment-state.json").read_text())
     assert state["state"] == "failed"
     assert state["capability_states"]["video"]["state"] == "deferred"
+
+
+@pytest.mark.parametrize("state", ["deferred", "unavailable", "blocked"])
+def test_remote_non_dry_run_capability_states_fail_explicitly(tmp_path, state):
+    cap = tmp_path / "capability.json"
+    cap.write_text(json.dumps({"provider": "remote", "capability_states": {"video": {"state": state, "provider": "remote"}}}))
+    result = bash(f'capability_reject_non_dry_run "{cap}"')
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert "video" in output.lower() and state in output.lower()
+
+
+def test_cli_rejects_remote_non_dry_run_capability_states(tmp_path):
+    content = CLI.read_text()
+    capability_gate = content[content.index('CAPABILITY_JSON='):content.index('SELECTION_JSON=')]
+    assert 'if [[ "$DRY_RUN" != true ]]; then' in capability_gate
+    assert '"$PROVIDER" != remote' not in capability_gate
