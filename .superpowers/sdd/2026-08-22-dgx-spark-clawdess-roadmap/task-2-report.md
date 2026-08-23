@@ -54,3 +54,14 @@ Unrelated pre-existing untracked files were preserved and not staged.
 - Full suite: `.venv/bin/python -m pytest -q` — `116 passed in 23.09s`.
 - Syntax: `bash -n scripts/deploy-dgx-spark-lib.sh scripts/deploy-dgx-spark.sh` — passed.
 - Whitespace: `git diff --check` — passed.
+
+
+## Fix Round 3 — Exact Capability-State Vocabulary Validation
+
+- Regression test added for arbitrary catalog status `catalog-corruption`; RED observed (exit 0 before fix), then GREEN: `1 passed, 49 deselected in 0.02s`.
+- `capability_manifest` now explicitly accepts only `verified`, `experimental`, `deferred`, `unavailable`, or `blocked`; unknown values fail explicitly.
+- Capability-focused: `3 passed, 47 deselected in 0.11s`.
+- Full suite: `117 passed in 23.14s`.
+- Syntax/whitespace checks passed: `bash -n scripts/deploy-dgx-spark-lib.sh scripts/deploy-dgx-spark.sh && git diff --check`.
+- Implementation commit: `dbc4a4c823977c1139afadfec6523b37d52f440a`.
+- Files: `scripts/deploy-dgx-spark-lib.sh`, `tests/test_dgx_spark_ac_gaps.py`, this report.
