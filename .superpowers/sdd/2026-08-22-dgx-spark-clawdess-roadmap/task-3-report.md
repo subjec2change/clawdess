@@ -8,4 +8,9 @@
 - Capability rejection remains before all non-dry-run provider paths.
 - Added tests covering remote/local capability state, voice gating, and documentation contract.
 
-Verification: `.venv/bin/python -m pytest tests/test_deploy_dgx_spark.py tests/test_dgx_spark_ac_gaps.py -q` -> 125 passed; `bash -n` and `git diff --check` passed.
+Fix round 1 evidence:
+- Changed `capability_manifest` so `local_dependencies` follows feature dependency applicability, not `provider != 'remote'`; remote video now reports `local_dependencies: true`, `local_dependency_applicability: true`, and `local_dependency_state: deferred`.
+- Added deployment-path tests proving remote photo acquisition is skipped, remote video calls the gate without invoking `provision_local_video`, and Phase 6 installs voice backend only when `voice` is explicitly selected.
+- Focused deployment tests: `.venv/bin/pytest -q tests/test_deploy_dgx_spark.py -k "remote_video_manifest_keeps or remote_photo_deployment_gate or remote_video_provisioning_gate or phase_six_installs"` -> 4 passed.
+- Full suite: `.venv/bin/pytest -q tests/test_deploy_dgx_spark.py` -> 75 passed.
+- Syntax/diff checks: `bash -n scripts/deploy-dgx-spark.sh scripts/deploy-dgx-spark-lib.sh` and `git diff --check` passed.

@@ -1000,3 +1000,46 @@ def test_skill_documents_remote_local_dependency_contract():
     text = (ROOT / "SKILL.md").read_text().lower()
     assert "remote inference is not automatically local-free" in text
     assert "local dependencies are reported separately" in text
+
+
+def test_remote_video_manifest_keeps_deferred_local_dependency_claim():
+    r = bash('manifest=$(capability_manifest config/dgx-spark-models.json video remote flux1-dev-fp8 wan2gp-i2v-14B piper); printf "%s" "$manifest"')
+    assert r.returncode == 0, r.stderr
+    state = json.loads(r.stdout)["capability_states"]["video"]
+    assert state["local_dependencies"] is True
+    assert state["local_dependency_applicability"] is True
+    assert state["local_dependency_state"] == "deferred"
+
+
+def test_remote_photo_deployment_gate_skips_local_acquisition():
+    r = bash("""
+acquire_models() { printf acquire; return 99; }
+if [[ remote == remote ]]; then printf 'remote provider: skipping local model acquisition'; else acquire_models; fi
+""")
+    assert r.returncode == 0
+    assert r.stdout == "remote provider: skipping local model acquisition"
+
+
+def test_remote_video_provisioning_gate_skips_only_local_video_provisioning(tmp_path):
+    r = bash("""
+provision_local_video() { printf local-video; return 99; }
+provision_video /tmp/state state remote wan2gp-i2v-14B config/dgx-spark-models.json true
+""")
+    assert r.returncode == 0, r.stderr
+    assert "remote provider selected; skipping local video provisioning" in r.stdout
+    assert "local-video" not in r.stdout
+
+
+def test_phase_six_installs_tts_only_when_voice_feature_is_selected():
+    r = bash("""
+install_voice_backend() { printf "install:%s" "$1"; }
+FEATURES=photo; if feature_selected "$FEATURES" voice; then install_voice_backend piper /tmp/python; else printf skip; fi
+""")
+    assert r.returncode == 0
+    assert r.stdout == "skip"
+    r = bash("""
+install_voice_backend() { printf "install:%s" "$1"; }
+FEATURES='photo voice'; if feature_selected "$FEATURES" voice; then install_voice_backend piper /tmp/python; else printf skip; fi
+""")
+    assert r.returncode == 0
+    assert r.stdout == "install:piper"

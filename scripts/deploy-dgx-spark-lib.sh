@@ -1253,8 +1253,9 @@ for feature in selected:
     if status not in allowed:
         raise SystemExit(f'unknown capability status: {status!r} for {feature}')
     if feature=='video' and status=='verified': status='deferred'
-    local_dependencies = provider != 'remote'
+    # Provider selection is independent from whether local dependencies apply.
     local_dependency_applicability = feature in {'video', 'voice'}
+    local_dependencies = local_dependency_applicability
     local_dependency_state = 'deferred' if feature == 'video' else ('required' if feature == 'voice' else 'delegated')
     states[feature]={'state':status,'selected':name,'provider':provider,'local_dependencies':local_dependencies,'local_dependency_applicability':local_dependency_applicability,'local_dependency_state':local_dependency_state}
 print(json.dumps({'capability_states':states,'provider':provider,'selected_features':selected,'image_model':image,'video_model':video,'tts_backend':voice},separators=(',',':')))
