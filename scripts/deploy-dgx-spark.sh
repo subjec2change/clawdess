@@ -243,6 +243,7 @@ if [[ -n "$PROFILE" ]]; then
 fi
 
 CAPABILITY_JSON="$(capability_manifest "$CONFIG" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND")" || { on_error 1 "$LINENO" "capability state resolution failed"; exit 1; }
+state_write "$STATE_ROOT" "capabilities" "capability state resolved" "" "planned" "$CAPABILITY_JSON" || { on_error 1 "$LINENO" "capability state persistence failed"; exit 1; }
 if [[ "$DRY_RUN" != true && "$PROVIDER" != remote ]]; then
     CAPABILITY_TMP="$DEPLOY_ROOT/state/capability-state.json"
     mkdir -p "$DEPLOY_ROOT/state"

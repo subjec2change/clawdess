@@ -159,6 +159,7 @@ print(json.dumps(state, separators=(',',':')))
         return 1
     fi
     json_write_atomic "$state_dir/deployment-state.json" "$payload"
+    json_write_atomic "$deploy_root/deployment-manifest.json" "$payload"
 }
 
 state_success() {

@@ -861,3 +861,37 @@ def test_non_dry_run_deferred_capability_fails_explicitly(tmp_path, config_path)
     assert "video" in output.lower() and "deferred" in output.lower()
     data = json.loads(cap.read_text())
     assert data["capability_states"]["video"]["state"] == "deferred"
+
+
+def test_state_write_persists_capability_states_and_manifest(tmp_path):
+    deploy_root = tmp_path / 'deploy'
+    cap_path = tmp_path / 'capability.json'
+    cap_path.write_text(json.dumps({'capability_states': {'photo': {'state': 'verified'}}, 'provider': 'remote'}))
+    result = bash(f'''state_write "{deploy_root}" models planned "" planned "$(cat "{cap_path}")"''')
+    assert result.returncode == 0, result.stderr
+    state = json.loads((deploy_root / 'state' / 'deployment-state.json').read_text())
+    manifest = json.loads((deploy_root / 'deployment-manifest.json').read_text())
+    assert state['capability_states']['photo']['state'] == 'verified'
+    assert manifest['capability_states'] == state['capability_states']
+    assert manifest['provider'] == 'remote'
+
+
+def test_state_success_preserves_capability_states_in_manifest(tmp_path):
+    deploy_root = tmp_path / 'deploy'
+    cap_path = tmp_path / 'capability.json'
+    cap_path.write_text(json.dumps({'capability_states': {'video': {'state': 'deferred'}}, 'provider': 'remote'}))
+    result = bash(f'''state_write "{deploy_root}" models planned "" planned "$(cat "{cap_path}")"; state_success "{deploy_root}"''')
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((deploy_root / 'deployment-manifest.json').read_text())
+    assert manifest['state'] == 'completed'
+    assert manifest['capability_states']['video']['state'] == 'deferred'
+
+
+def test_failed_capability_state_persists_mapping(tmp_path, config_path):
+    deploy_root = tmp_path / "deploy"
+    cap = deploy_root / "capability.json"
+    result = bash(f'mkdir -p "{deploy_root}"; capability_manifest "{config_path}" "photo,video" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper" > "{cap}"; state_write "{deploy_root}" models "capability selection blocked" "" "failed" "$(cat "{cap}")"')
+    assert result.returncode == 0, result.stderr
+    state = json.loads((deploy_root / "state" / "deployment-state.json").read_text())
+    assert state["state"] == "failed"
+    assert state["capability_states"]["video"]["state"] == "deferred"
