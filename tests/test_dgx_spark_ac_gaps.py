@@ -840,6 +840,16 @@ def test_task4_dry_run_reports_deferred_without_scaffold_write(tmp_path):
     assert result.returncode == 0 and "deferred" in result.stdout.lower() and not deploy_root.exists()
 
 
+
+def test_capability_manifest_rejects_unknown_catalog_status(tmp_path, config_path):
+    config = json.loads(Path(config_path).read_text())
+    config["models"]["juggernaut-xl-v10"]["status"] = "catalog-corruption"
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text(json.dumps(config))
+    result = bash(f'capability_manifest "{malformed}" "photo" "local" "juggernaut-xl-v10" "" ""')
+    assert result.returncode != 0
+    assert "unknown capability status" in result.stderr.lower()
+
 def test_capability_state_mapping_persists_selected_provider_separately(tmp_path, config_path):
     result = bash(f'capability_manifest "{config_path}" "photo,video,voice" "remote" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper"')
     assert result.returncode == 0, result.stderr

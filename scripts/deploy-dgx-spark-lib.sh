@@ -1244,6 +1244,9 @@ provider,image,video,voice=sys.argv[3:]; models=cfg.get('models',{}); vb=cfg.get
 for feature in selected:
     name={'photo':image,'video':video,'voice':voice}.get(feature,''); meta=vb.get(name,{}) if feature=='voice' else models.get(name,{})
     status=meta.get('status') or ('experimental' if meta.get('experimental') else ('verified' if name and name in models else 'unavailable'))
+    allowed={'verified','experimental','deferred','unavailable','blocked'}
+    if status not in allowed:
+        raise SystemExit(f'unknown capability status: {status!r} for {feature}')
     if feature=='video' and status=='verified': status='deferred'
     states[feature]={'state':status,'selected':name,'provider':provider,'local_dependencies':provider!='remote'}
 print(json.dumps({'capability_states':states,'provider':provider,'selected_features':selected,'image_model':image,'video_model':video,'tts_backend':voice},separators=(',',':')))
