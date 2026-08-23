@@ -859,7 +859,7 @@ def test_capability_state_mapping_persists_selected_provider_separately(tmp_path
     assert data["capability_states"]["video"]["state"] == "deferred"
     assert data["capability_states"]["voice"]["state"] == "verified"
     assert data["capability_states"]["photo"]["provider"] == "remote"
-    assert data["capability_states"]["video"]["local_dependencies"] is False
+    assert data["capability_states"]["video"]["local_dependencies"] is True
 
 
 def test_non_dry_run_deferred_capability_fails_explicitly(tmp_path, config_path):
