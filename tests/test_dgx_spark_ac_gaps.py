@@ -884,7 +884,8 @@ def test_state_success_preserves_capability_states_in_manifest(tmp_path):
     assert result.returncode == 0, result.stderr
     manifest = json.loads((deploy_root / 'deployment-manifest.json').read_text())
     assert manifest['state'] == 'completed'
-    assert manifest['capability_states']['video']['state'] == 'deferred'
+    assert manifest['capability_states'] == {'video': {'state': 'deferred'}}
+    assert manifest['provider'] == 'remote'
 
 
 def test_failed_capability_state_persists_mapping(tmp_path, config_path):

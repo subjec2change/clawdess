@@ -39,3 +39,18 @@ Unrelated pre-existing untracked files were preserved and not staged.
 - `scripts/deploy-dgx-spark.sh`
 - `tests/test_dgx_spark_ac_gaps.py`
 - `.superpowers/sdd/2026-08-22-dgx-spark-clawdess-roadmap/task-2-report.md`
+
+
+## Fix Round 2 — `state_success` Capability-State Persistence
+
+### Changes
+- `state_success` now preserves `capability_states` while reconstructing `deployment-manifest.json`; the existing field-preservation list was missing this key.
+- Strengthened `test_state_success_preserves_capability_states_in_manifest` to assert the complete capability mapping and preserved provider after `state_write` followed by `state_success`.
+
+### Verification
+- RED: temporarily removed `capability_states` from `state_success` preservation list; `.venv/bin/python -m pytest tests/test_dgx_spark_ac_gaps.py -q -k state_success_preserves_capability_states_in_manifest` — `1 failed, 48 deselected`; failure was `KeyError: 'capability_states'`.
+- GREEN focused: `.venv/bin/python -m pytest tests/test_dgx_spark_ac_gaps.py -q -k "state_write_persists_capability or state_success_preserves or failed_capability"` — `3 passed, 46 deselected in 0.18s`.
+- Acceptance suite: `.venv/bin/python -m pytest tests/test_dgx_spark_ac_gaps.py -q` — `49 passed in 8.00s`.
+- Full suite: `.venv/bin/python -m pytest -q` — `116 passed in 23.09s`.
+- Syntax: `bash -n scripts/deploy-dgx-spark-lib.sh scripts/deploy-dgx-spark.sh` — passed.
+- Whitespace: `git diff --check` — passed.
