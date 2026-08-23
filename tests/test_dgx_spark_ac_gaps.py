@@ -838,3 +838,26 @@ def test_task4_dry_run_reports_deferred_without_scaffold_write(tmp_path):
     deploy_root = tmp_path / "deploy"
     result = bash(f'provision_local_video "{deploy_root}" "{deploy_root}" "wan2gp-i2v-14B" "{ROOT / "config/dgx-spark-models.json"}" true')
     assert result.returncode == 0 and "deferred" in result.stdout.lower() and not deploy_root.exists()
+
+
+def test_capability_state_mapping_persists_selected_provider_separately(tmp_path, config_path):
+    result = bash(f'capability_manifest "{config_path}" "photo,video,voice" "remote" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper"')
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["provider"] == "remote"
+    assert data["capability_states"]["photo"]["state"] == "verified"
+    assert data["capability_states"]["video"]["state"] == "deferred"
+    assert data["capability_states"]["voice"]["state"] == "verified"
+    assert data["capability_states"]["photo"]["provider"] == "remote"
+    assert data["capability_states"]["video"]["local_dependencies"] is False
+
+
+def test_non_dry_run_deferred_capability_fails_explicitly(tmp_path, config_path):
+    root = tmp_path / "deploy"; root.mkdir()
+    cap = root / "capability.json"
+    result = bash(f'capability_manifest "{config_path}" "photo,video" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper" > "{cap}"; capability_reject_non_dry_run "{cap}"')
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert "video" in output.lower() and "deferred" in output.lower()
+    data = json.loads(cap.read_text())
+    assert data["capability_states"]["video"]["state"] == "deferred"

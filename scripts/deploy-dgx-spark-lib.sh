@@ -200,7 +200,7 @@ def redact_obj(obj):
         return result
     return obj
 clean_existing = redact_obj(existing)
-for k in ('models', 'venv', 'comfyui', 'tts'):
+for k in ('models', 'venv', 'comfyui', 'tts', 'capability_states', 'selected_features', 'provider', 'image_model', 'video_model', 'tts_backend'):
     if k in clean_existing:
         manifest[k] = clean_existing[k]
 print(json.dumps(manifest, separators=(',',':')))
@@ -1231,6 +1231,31 @@ do_cleanup() {
             fi
         done
     fi
+}
+
+# capability_manifest CONFIG FEATURES PROVIDER IMAGE VIDEO VOICE
+capability_manifest() {
+    local config="${1:?config required}" features="${2:-}" provider="${3:-local}" image="${4:-}" video="${5:-}" voice="${6:-}"
+    python3 - "$config" "$features" "$provider" "$image" "$video" "$voice" <<'PY2'
+import json, sys, re
+cfg=json.load(open(sys.argv[1])); selected=[x for x in re.split(r'[\s,]+',sys.argv[2]) if x]
+provider,image,video,voice=sys.argv[3:]; models=cfg.get('models',{}); vb=cfg.get('voice_backends',{}); states={}
+for feature in selected:
+    name={'photo':image,'video':video,'voice':voice}.get(feature,''); meta=vb.get(name,{}) if feature=='voice' else models.get(name,{})
+    status=meta.get('status') or ('experimental' if meta.get('experimental') else ('verified' if name and name in models else 'unavailable'))
+    if feature=='video' and status=='verified': status='deferred'
+    states[feature]={'state':status,'selected':name,'provider':provider,'local_dependencies':provider!='remote'}
+print(json.dumps({'capability_states':states,'provider':provider,'selected_features':selected,'image_model':image,'video_model':video,'tts_backend':voice},separators=(',',':')))
+PY2
+}
+
+capability_reject_non_dry_run() {
+    python3 - "$1" <<'PY2'
+import json,sys
+for capability,item in json.load(open(sys.argv[1])).get('capability_states',{}).items():
+    if item.get('state') in {'deferred','unavailable','blocked'}:
+        print(f"capability: {capability} is {item['state']}; non-dry-run selection is unavailable",file=sys.stderr); raise SystemExit(1)
+PY2
 }
 
 # ---------------------------------------------------------------------------

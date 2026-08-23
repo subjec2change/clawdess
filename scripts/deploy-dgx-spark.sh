@@ -242,6 +242,17 @@ if [[ -n "$PROFILE" ]]; then
     printf 'selection: features=%s provider=%s image-model=%s video-model=%s tts-backend=%s\n' "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND"
 fi
 
+CAPABILITY_JSON="$(capability_manifest "$CONFIG" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND")" || { on_error 1 "$LINENO" "capability state resolution failed"; exit 1; }
+if [[ "$DRY_RUN" != true && "$PROVIDER" != remote ]]; then
+    CAPABILITY_TMP="$DEPLOY_ROOT/state/capability-state.json"
+    mkdir -p "$DEPLOY_ROOT/state"
+    printf '%s\n' "$CAPABILITY_JSON" > "$CAPABILITY_TMP"
+    if ! capability_reject_non_dry_run "$CAPABILITY_TMP"; then
+        state_write "$STATE_ROOT" "models" "capability selection blocked" "" "failed" "$CAPABILITY_JSON"
+        exit 1
+    fi
+fi
+
 SELECTION_JSON="$(printf "%s\n" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" | python3 -c 'import json,re,sys; a=sys.stdin.read().splitlines(); print(json.dumps({"selected_features":[x for x in re.split(r"[\s,]+",a[0].strip()) if x],"provider":a[1],"image_model":a[2],"video_model":a[3],"tts_backend":a[4]},separators=(",",":")))')"
 
 if [[ "$PROVIDER" == "remote" ]]; then

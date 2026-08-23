@@ -184,7 +184,7 @@ When a profile is supplied, Phase 5 resolves its feature bundle and catalog defa
 - `assistant`: photo + video + Piper voice; local LLM setup is not yet wired
 - `all`: all catalog features; experimental and not recommended for unattended runs
 
-Explicit `--image-model` and `--tts-backend` values override profile defaults. The current catalog supports `juggernaut-xl-v10`, `stability-ai-sdxl-turbo`, `wan2gp-i2v-14B`, and Piper voice files. Video, local LLM, Kokoro, XTTS, and additional diffusion models remain catalog work rather than verified deployment features.
+Explicit `--image-model` and `--tts-backend` values override profile defaults. The current catalog supports `juggernaut-xl-v10`, `stability-ai-sdxl-turbo`, `wan2gp-i2v-14B`, and Piper voice files. Video, local LLM, Kokoro, XTTS, and additional diffusion models remain catalog work rather than verified deployment features. Capability states are explicit in deployment state/manifest data: `verified`, `experimental`, `deferred`, `unavailable`, or `blocked`. Provider selection is recorded separately from local dependencies. Non-dry-run selection of a deferred, unavailable, or blocked capability exits nonzero with the capability and state; use `--dry-run` to inspect such a plan without claiming installation.
 
 ### Step 3 — Deploy
 
