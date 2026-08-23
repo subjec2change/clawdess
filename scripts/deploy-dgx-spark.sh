@@ -302,11 +302,11 @@ fi
 PHASE="tts"
 printf '=== Phase 6: TTS ===\n'
 
-if [[ "$DRY_RUN" == false ]]; then
-    install_voice_backend "$TTS_BACKEND" "$VENV_PATH/bin/python" || {
-        on_error 1 "$LINENO" "installation failed"
-        exit 1
-    }
+if [[ "$DRY_RUN" == false ]] && feature_selected "$FEATURES" voice; then
+    install_voice_backend "$TTS_BACKEND" "$VENV_PATH/bin/python" || { on_error 1 "$LINENO" "installation failed"; exit 1; }
+elif ! feature_selected "$FEATURES" voice; then
+    printf 'tts: voice feature not selected; local TTS setup skipped
+'
 fi
 
 # ---------------------------------------------------------------------------

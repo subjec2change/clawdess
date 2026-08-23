@@ -968,3 +968,35 @@ def test_cli_local_video_provisioning_call_is_feature_gated_and_ordered():
     assert acquire < provision < tts
     assert '[[ "$PROVIDER" != "remote" ]]' in content[provision - 300:provision]
     assert '(^|[[:space:],])video([[:space:],]|$)' in content[provision - 300:provision]
+
+
+def test_remote_capability_manifest_separates_provider_and_local_dependencies():
+    """Remote inference does not erase local dependency applicability."""
+    r = bash('''manifest=$(capability_manifest config/dgx-spark-models.json "photo video voice" remote flux1-dev-fp8 wan2gp-i2v-14B piper); printf '%s' "$manifest"''')
+    assert r.returncode == 0, r.stderr
+    state = json.loads(r.stdout)
+    assert state["provider"] == "remote"
+    assert state["capability_states"]["photo"]["local_dependencies"] is False
+    assert state["capability_states"]["video"]["local_dependency_applicability"] is True
+    assert state["capability_states"]["video"]["local_dependency_state"] == "deferred"
+
+
+def test_remote_photo_dry_run_skips_only_local_photo_acquisition():
+    r = bash('''manifest=$(capability_manifest config/dgx-spark-models.json photo remote flux1-dev-fp8 \'\' \'\'); printf '%s' "$manifest"''')
+    assert r.returncode == 0, r.stderr
+    state = json.loads(r.stdout)
+    assert state["provider"] == "remote"
+    assert state["capability_states"]["photo"]["local_dependencies"] is False
+    assert "local_dependency_state" in state["capability_states"]["photo"]
+
+
+def test_remote_voice_requires_explicit_voice_feature_for_local_tts():
+    r = bash('''FEATURES=photo; if feature_selected "$FEATURES" voice; then printf install; else printf skip; fi''')
+    assert r.returncode == 0
+    assert r.stdout == "skip"
+
+
+def test_skill_documents_remote_local_dependency_contract():
+    text = (ROOT / "SKILL.md").read_text().lower()
+    assert "remote inference is not automatically local-free" in text
+    assert "local dependencies are reported separately" in text
