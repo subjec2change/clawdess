@@ -28,7 +28,7 @@ def build_parser():
     p_photo = sub.add_parser("photo", help="Generate an edited photo")
     p_photo.add_argument("--api", help="Photo API key (or env CLAWDESS_PHOTO_API)")
     p_photo.add_argument("--prompt", "-p", required=True, help="Image edit prompt")
-    p_photo.add_argument("--image", "-i", required=True, help="Reference image URL")
+    p_photo.add_argument("--image", "-i", required=True, help="Reference image HTTPS URL or local PNG/JPEG/WebP path")
     p_photo.add_argument(
         "--provider",
         "-s",
@@ -40,7 +40,7 @@ def build_parser():
     p_video = sub.add_parser("video", help="Generate a video from an image")
     p_video.add_argument("--api", help="Video API key (or env CLAWDESS_VIDEO_API)")
     p_video.add_argument("--prompt", "-p", required=True, help="Video prompt")
-    p_video.add_argument("--image", "-i", required=True, help="Source image URL")
+    p_video.add_argument("--image", "-i", required=True, help="Source image HTTPS URL or local PNG/JPEG/WebP path")
     p_video.add_argument(
         "--provider",
         "-s",
