@@ -794,6 +794,21 @@ def test_task3_backend_validation_aliases_and_deferred_errors(config_path):
     assert result.returncode != 0
     assert "unsupported" in result.stderr.lower() or "deferred" in result.stderr.lower()
 
+def test_task5_voice_backend_status_is_structured_and_truthful(config_path):
+    for backend, expected_state in (("piper", "verified"), ("kokoro", "experimental"), ("xtts", "deferred")):
+        result = bash(f'voice_backend_status "{ROOT / "config/dgx-spark-models.json"}" "{backend}"')
+        assert result.returncode == 0, result.stderr
+        data = json.loads(result.stdout)
+        assert data["backend"] == ("xtts-v2" if backend == "xtts" else backend)
+        assert data["state"] == expected_state
+        assert data["reason"]
+    xtts = json.loads(bash(f'voice_backend_status "{ROOT / "config/dgx-spark-models.json"}" xtts-v2').stdout)
+    assert xtts["speaker_wav"] == "<path-to-speaker-wav>"
+    result = bash(f'voice_backend_status "{ROOT / "config/dgx-spark-models.json"}" vllm')
+    assert result.returncode != 0
+    assert "unsupported" in result.stderr.lower()
+
+
 def test_task3_acquire_voice_only_does_not_plan_image(config_path, tmp_path):
     result = bash(f'model_records "{config_path}" "juggernaut-xl-v10" piper "" voice')
     assert result.returncode == 0

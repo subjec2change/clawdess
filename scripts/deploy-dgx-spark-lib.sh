@@ -697,6 +697,35 @@ feature_selected() {
 # TTS helpers
 # ---------------------------------------------------------------------------
 
+# voice_backend_status CONFIG BACKEND
+# Emit a stable JSON capability result without claiming runtime readiness.
+voice_backend_status() {
+    local config="${1:?config required}" requested="${2:?backend required}"
+    python3 - "$config" "$requested" <<'PY'
+import json, sys
+config, requested = sys.argv[1], sys.argv[2].lower()
+cfg = json.load(open(config))
+aliases = {"piper-voice": "piper", "xtts": "xtts-v2", **cfg.get("aliases", {})}
+backend = requested
+seen = set()
+while backend in aliases and backend not in seen:
+    seen.add(backend)
+    backend = aliases[backend]
+known = cfg.get("voice_backends", {})
+if backend == "vllm" or backend not in known:
+    print(f"voice: unsupported backend: {requested}", file=sys.stderr)
+    raise SystemExit(1)
+entry = known[backend]
+state = entry.get("status", "unavailable")
+result = {"backend": backend, "state": state, "reason": entry.get("description", "no capability description")}
+if "speaker_wav" in entry:
+    result["speaker_wav"] = entry["speaker_wav"]
+if "voices" in entry:
+    result["voices"] = entry["voices"]
+print(json.dumps(result, separators=(",", ":")))
+PY
+}
+
 # validate_voice_backend CONFIG BACKEND
 validate_voice_backend() {
     local config="${1:?config required}" requested="${2:?backend required}"
