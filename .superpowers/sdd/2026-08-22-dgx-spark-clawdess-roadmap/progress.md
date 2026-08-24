@@ -27,3 +27,8 @@
 - Experimental/deferred: local video runtime, Kokoro, XTTS-v2, and external provider generation.
 - Blocked: native video artifact/runtime acceptance pending actual model/dependency/service/state/artifact evidence.
 - No credentials, provider responses, runtime success, identity consistency, uncensored behavior, or production readiness are claimed.
+
+## Fresh Task 7 Piper evidence
+
+- Native Piper smoke/evidence run: **blocked**. The DGX host had no `piper` executable, no `.venv/bin/piper`, and no Piper voice model files in the tested deployment/model locations. No audio output or runtime readiness is claimed.
+- This does not change the catalog capability boundary: Piper is `verified` only on its supported installed path; this native acceptance run did not exercise that path.
