@@ -10,7 +10,7 @@ Use this skill to send companion media through `scripts/clawdess.py`.
 
 ## Inputs
 
-- Reference image URL: read from `IDENTITY.md` for photo generation.
+- Reference image HTTPS URL or local PNG/JPEG/WebP path: read from `IDENTITY.md` for photo generation.
 - Personality and continuity: use `IDENTITY.md`, `SOUL.md`, and the current chat context when present.
 - Provider: read the default photo/video/voice provider from `SOUL.md`. Pass it with `--provider`. If `SOUL.md` does not name a provider for that media type, omit `--provider` so the CLI uses its built-in default.
 - API keys: pass `--api` or rely on `CLAWDESS_PHOTO_API`, `CLAWDESS_VIDEO_API`, and `CLAWDESS_VOICE_API`.

@@ -103,3 +103,23 @@ def discover_providers(package_name):
         if hasattr(mod, "generate"):
             providers[name] = mod
     return providers
+
+
+def validate_image_reference(reference, max_bytes=25 * 1024 * 1024):
+    """Validate an HTTPS image URL or a local PNG/JPEG/WebP path."""
+    from pathlib import Path
+    from urllib.parse import urlparse
+    if not isinstance(reference, str) or not reference.strip(): raise ValueError("image reference must be a non-empty HTTPS URL or local image path")
+    reference = reference.strip(); parsed = urlparse(reference)
+    if parsed.scheme:
+        if parsed.scheme != "https" or not parsed.netloc: raise ValueError("image reference URL must use HTTPS")
+        return reference
+    path = Path(reference).expanduser()
+    if not path.is_file(): raise ValueError(f"local image is not a regular file: {reference}")
+    suffix = path.suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}: raise ValueError("local image must use PNG, JPEG, or WebP format")
+    if path.stat().st_size > max_bytes: raise ValueError(f"local image exceeds maximum size of {max_bytes} bytes")
+    header = path.read_bytes()[:16]
+    valid = {".png": header.startswith(b"\x89PNG\r\n\x1a\n"), ".jpg": header.startswith(b"\xff\xd8\xff"), ".jpeg": header.startswith(b"\xff\xd8\xff"), ".webp": header.startswith(b"RIFF") and header[8:12] == b"WEBP"}
+    if not valid[suffix]: raise ValueError("local image content does not match its extension")
+    return str(path)
