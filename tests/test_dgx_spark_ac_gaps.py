@@ -940,3 +940,87 @@ def test_video_preflight_reports_machine_readable_missing_runtime(tmp_path):
     assert lines["VIDEO_PREFLIGHT_STATUS"] == "failed"
     assert lines["VIDEO_DOCKER"] in {"missing", "unavailable"}
     assert lines["VIDEO_ARTIFACT_EVIDENCE"] == "absent"
+
+
+# Task 4 review blocker coverage: direct runtime preflight contract tests.
+def _run_video_preflight(tmp_path, *, health="fail", state=None, artifact=False, dependency=False, docker_missing=False):
+    root = tmp_path / "deployment"
+    (root / "models").mkdir(parents=True)
+    if not (not dependency and health == "fail" and state is None):
+        (root / "models" / "wan-video.safetensors").write_bytes(b"model")
+    (root / "artifacts" / "video").mkdir(parents=True)
+    if artifact:
+        (root / "artifacts" / "video" / "sample.mp4").write_bytes(b"video")
+    (root / "state").mkdir()
+    if state is not None:
+        (root / "state" / "deployment-state.json").write_text(json.dumps(state))
+    if dependency:
+        (root / "video-runtime").mkdir()
+        (root / "video-runtime" / "wan2gp").write_text("runtime")
+        (root / "config").mkdir()
+        (root / "config" / "video-local.json").write_text(json.dumps({
+            "status": "verified", "dependencies": {"runtime": str(root / "video-runtime" / "wan2gp")}
+        }))
+    fake = tmp_path / "bin"; fake.mkdir()
+    (fake / "uname").write_text("#!/bin/sh\nprintf aarch64\n"); (fake / "uname").chmod(0o755)
+    (fake / "docker").write_text("#!/bin/sh\nexit 0\n"); (fake / "docker").chmod(0o755)
+    (fake / "nvidia-smi").write_text("#!/bin/sh\nprintf 'GB10, 12.1\\n'\n"); (fake / "nvidia-smi").chmod(0o755)
+    sock = tmp_path / "docker.sock"
+    import socket
+    s = socket.socket(socket.AF_UNIX); s.bind(str(sock))
+    env = os.environ.copy(); env.update({"PATH": f"{fake}:/usr/bin:/bin", "DOCKER_HOST_SOCKET": str(sock), "CLAWDESS_TEST_DOCKER": "missing" if docker_missing else ""})
+    if health == "pass":
+        (fake / "curl").write_text("#!/bin/sh\nexit 0\n")
+    else:
+        (fake / "curl").write_text("#!/bin/sh\nexit 22\n")
+    (fake / "curl").chmod(0o755)
+    result = subprocess.run(["bash", str(ROOT / "scripts" / "check-dgx-video-runtime.sh"), str(root)], cwd=ROOT, env=env, text=True, capture_output=True)
+    s.close(); return result, dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+
+def test_video_preflight_reports_missing_model_and_dependency_paths(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, docker_missing=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_MODEL_PATH"] == "absent"
+    assert lines["VIDEO_DEPENDENCY_PATH"] == "absent"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+
+
+def test_video_preflight_unavailable_health_stays_preflight(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, health="fail", state={"state": "completed"}, dependency=True, docker_missing=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_SERVICE_HEALTH"] == "failed"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+
+
+def test_video_preflight_passing_health_requires_all_preflights(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, health="pass", state={"state": "completed"}, dependency=True, docker_missing=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_SERVICE_HEALTH"] == "passing"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+    assert lines["VIDEO_PREFLIGHT_STATUS"] == "failed"
+
+
+def test_video_preflight_accepts_structured_state_and_artifact_evidence(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, health="pass", state={"state": "completed"}, dependency=True, artifact=True)
+    assert result.returncode == 0, result.stderr
+    assert lines["VIDEO_STATE_EVIDENCE"] == "present"
+    assert lines["VIDEO_ARTIFACT_EVIDENCE"] == "present"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "artifact"
+
+
+@pytest.mark.parametrize("bad_state", [{"state": "planned"}, {"state": "dry-run"}, {"state": "failed"}, {"arbitrary": "non-empty"}])
+def test_video_preflight_rejects_untruthful_state_evidence(tmp_path, bad_state):
+    result, lines = _run_video_preflight(tmp_path, health="pass", state=bad_state, dependency=True, artifact=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_STATE_EVIDENCE"] == "absent"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+
+
+def test_generated_lifecycle_scripts_have_bash_syntax(tmp_path):
+    deploy_root = tmp_path / "deploy"; state_root = tmp_path / "state"
+    deploy_root.mkdir(); state_root.mkdir()
+    result = bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}"')
+    assert result.returncode == 0
+    for path in (deploy_root / "bin").iterdir():
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, path

@@ -32,21 +32,44 @@ model=absent
 for candidate in "$MODEL_ROOT"/*wan* "$MODEL_ROOT"/*video* "$ROOT"/models/video/*; do [[ -f "$candidate" ]] && { model=present; break; }; done
 emit MODEL_PATH "$model"
 [[ "$model" == present ]] || fail=1
-if [[ -x "$ROOT/venv/bin/python" || -x "$ROOT/.venv/bin/python" || -x "$ROOT/venv/bin/python3" ]]; then deps=present; else deps=absent; fail=1; fi
+# Dependency evidence must identify the video runtime, not just Python.
+deps=absent
+manifest="$ROOT/config/video-local.json"
+if [[ -s "$manifest" ]] && python3 - "$manifest" <<'PYJSON' >/dev/null 2>&1
+import json, sys
+m=json.load(open(sys.argv[1]))
+assert m.get("status") == "verified"
+deps=m.get("dependencies", {})
+assert deps and all(isinstance(v,str) and __import__('os').path.exists(v) for v in deps.values())
+PYJSON
+then deps=present; fi
 emit DEPENDENCY_PATH "$deps"
+[[ "$deps" == present ]] || fail=1
 state=absent
-for f in "$ROOT/state/deployment-state.json" "$ROOT/state/deployment-manifest.json"; do [[ -s "$f" ]] && { state=present; break; }; done
+for f in "$ROOT/state/deployment-state.json" "$ROOT/state/deployment-manifest.json"; do
+  if [[ -s "$f" ]] && python3 - "$f" <<'PYJSON' >/dev/null 2>&1
+import json, sys
+m=json.load(open(sys.argv[1]))
+state=str(m.get("state", "")).lower()
+assert state in {"completed", "complete", "deployed", "running", "healthy"}
+PYJSON
+  then state=present; break; fi
+done
 emit STATE_EVIDENCE "$state"
+[[ "$state" == present ]] || fail=1
 health=unavailable
 if command -v curl >/dev/null 2>&1; then
-  if curl --fail --silent --show-error --max-time 3 "$VIDEO_HEALTH_URL" >/dev/null 2>&1; then health=passing; level=health; else health=failed; fi
+  if curl --fail --silent --show-error --max-time 3 "$VIDEO_HEALTH_URL" >/dev/null 2>&1; then health=passing; else health=failed; fi
 fi
 emit SERVICE_HEALTH "$health"
 artifact=absent
 for f in "$ROOT"/artifacts/video/* "$ROOT"/artifacts/*.{mp4,webm,mkv}; do [[ -f "$f" && -s "$f" ]] && { artifact=present; break; }; done
 emit ARTIFACT_EVIDENCE "$artifact"
-if [[ "$artifact" == present && "$health" == passing && "$state" == present ]]; then level=artifact
-elif [[ "$health" == passing ]]; then level=health
+# Health/artifact levels are subordinate to every required preflight check.
+if (( fail == 0 )); then
+  if [[ "$artifact" == present && "$health" == passing && "$state" == present ]]; then level=artifact
+  elif [[ "$health" == passing ]]; then level=health
+  fi
 fi
 emit PREFLIGHT_LEVEL "$level"
 if (( fail != 0 )); then emit PREFLIGHT_STATUS failed; exit 1; fi
