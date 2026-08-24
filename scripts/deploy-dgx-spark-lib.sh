@@ -215,7 +215,7 @@ print(json.dumps(manifest, separators=(',',':')))
 
 check_gb10_gpu() {
     local smi_output
-    smi_output="$(clawdess_nvidia_smi --query-gpu=name,memory.total,compute.cap --format=csv,noheader 2>/dev/null)" || {
+    smi_output="$(clawdess_nvidia_smi --query-gpu=name,compute_cap --format=csv,noheader 2>/dev/null)" || {
         printf 'gpu: nvidia-smi probe failed\n' >&2
         return 1
     }
@@ -227,6 +227,10 @@ check_gb10_gpu() {
 
     local name memory_total compute_cap
     IFS=',' read -r name memory_total compute_cap <<< "$smi_output"
+    if [[ -z "$compute_cap" ]]; then
+        compute_cap="$memory_total"
+        memory_total="[N/A]"
+    fi
 
     # nvidia-smi's CSV formatter may surround each field with whitespace.
     name="${name#"${name%%[![:space:]]*}"}"
@@ -236,6 +240,7 @@ check_gb10_gpu() {
     compute_cap="${compute_cap#"${compute_cap%%[![:space:]]*}"}"
     compute_cap="${compute_cap%"${compute_cap##*[![:space:]]}"}"
 
+    name="${name#NVIDIA }"
     if [[ "$name" != "GB10" ]]; then
         printf 'gpu: unexpected GPU %s (expected GB10)\n' "$name" >&2
         return 1

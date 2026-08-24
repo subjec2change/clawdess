@@ -80,6 +80,28 @@ check_gb10_gpu
     assert "GB10" in r.stdout
 
 
+
+
+def test_gpu_check_uses_supported_compute_cap_query():
+    """Native nvidia-smi exposes compute_cap, not compute.cap."""
+    r = bash("""
+clawdess_nvidia_smi() {
+    [[ "$*" == *"--query-gpu=name,compute_cap"* ]] || return 1
+    printf ' GB10 , 12.1 '
+}
+check_gb10_gpu
+""")
+    assert r.returncode == 0, r.stderr
+
+
+
+def test_gpu_check_accepts_nvidia_prefixed_gb10_name():
+    r = bash("""
+clawdess_nvidia_smi() { printf ' NVIDIA GB10 , 12.1 '; }
+check_gb10_gpu
+""")
+    assert r.returncode == 0, r.stderr
+
 def test_gpu_check_fails_wrong_compute_cap():
     """check_gb10_gpu fails when compute.cap is not 12.1."""
     r = bash("""
@@ -832,7 +854,12 @@ def test_smoke_test_piper_generates_audio(tmp_path):
 def test_cli_real_command_failure_invokes_production_error_handler(tmp_path):
     env = os.environ.copy()
     root = tmp_path / "deployment"
-    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": "/usr/bin:/bin",
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nexit 1\n")
+    (fake_bin / "nvidia-smi").chmod(0o755)
+    env.update({"CLAWDESS_DEPLOY_ROOT": str(root),
+                "PATH": f"{fake_bin}:{env['PATH']}",
                 "CLAWDESS_TEST_TOKEN": "cli-secret-value"})
     result = subprocess.run(
         ["bash", str(CLI), "--profile", "minimal", "--image-model",
