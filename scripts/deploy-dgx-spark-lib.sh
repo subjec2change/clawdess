@@ -1372,7 +1372,7 @@ if isinstance(data, list):
         printf '  3) voice\n' >&2
         printf 'Enter choice(s) separated by spaces (1-3): ' >&2
         local input
-        IFS= read -r input <&0 || true
+        if [[ -n "${CLAWDESS_INTERACTIVE_WIZARD:-}" ]]; then IFS= read -r input <&3 || true; else IFS= read -r input || true; fi
         features=()
         if [[ -n "$input" ]]; then
             local sel
@@ -1466,7 +1466,7 @@ print(p.get('provider', 'local'))
     printf 'Select [1-2]: ' >&2
 
     local choice
-    IFS= read -r choice || choice="1"
+    if [[ -n "${CLAWDESS_INTERACTIVE_WIZARD:-}" ]]; then IFS= read -r choice <&3 || choice="1"; else IFS= read -r choice || choice="1"; fi
     case "$choice" in
         1) printf 'local\n' ;;
         2) printf 'remote\n' ;;
@@ -1585,7 +1585,7 @@ for i, (key, meta) in enumerate(models, 1):
     printf 'Select: ' >&2
 
     local choice
-    IFS= read -r choice || choice="1"
+    if [[ -n "${CLAWDESS_INTERACTIVE_WIZARD:-}" ]]; then IFS= read -r choice <&3 || choice="1"; else IFS= read -r choice || choice="1"; fi
 
     python3 -c "
 import json, sys
