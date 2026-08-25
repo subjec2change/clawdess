@@ -107,12 +107,12 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
     if feature_selected "$FEATURES" video; then
         VIDEO_MODEL="$(select_model "$CONFIG" video "")" || exit 2
     else
-        VIDEO_MODEL="$(select_model "$CONFIG" video "" </dev/null)" || exit 2
+        VIDEO_MODEL="$(CLAWDESS_INTERACTIVE_WIZARD= select_model "$CONFIG" video "" </dev/null)" || exit 2
     fi
     if feature_selected "$FEATURES" voice; then
         TTS_BACKEND="$(select_model "$CONFIG" voice "")" || exit 2
     else
-        TTS_BACKEND="$(select_model "$CONFIG" voice "" </dev/null)" || exit 2
+        TTS_BACKEND="$(CLAWDESS_INTERACTIVE_WIZARD= select_model "$CONFIG" voice "" </dev/null)" || exit 2
     fi
     TTS_BACKEND="$(validate_voice_backend "$CONFIG" "$TTS_BACKEND")" || exit 2
     printf '\nSelection summary (no changes made yet):\n' >&2
