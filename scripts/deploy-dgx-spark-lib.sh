@@ -1560,13 +1560,15 @@ import json, sys
 cfg = json.load(open(sys.argv[1]))
 category = sys.argv[2]
 if category == 'voice':
-    entry = cfg.get('features', {}).get('voice', {})
+    features_cfg = cfg.get('features', {})
+    entry = features_cfg.get('voice', {}) if isinstance(features_cfg, dict) else {}
     backends = entry.get('backends', []) if isinstance(entry, dict) else []
     if not backends:
         backends = cfg.get('catalog', {}).get('voice', [])
     models = [(b, cfg.get('models', {}).get(b, {})) for b in backends]
 else:
-    entry = cfg.get('features', {}).get(category, {})
+    features_cfg = cfg.get('features', {})
+    entry = features_cfg.get(category, {}) if isinstance(features_cfg, dict) else {}
     models_list = entry.get('models', []) if isinstance(entry, dict) else []
     if not models_list:
         models_list = cfg.get('catalog', {}).get(category, [])
@@ -1591,12 +1593,14 @@ cfg = json.load(open(sys.argv[1]))
 category = sys.argv[2]
 choice = int(sys.argv[3])
 if category == 'voice':
-    entry = cfg.get('features', {}).get('voice', {})
+    features_cfg = cfg.get('features', {})
+    entry = features_cfg.get('voice', {}) if isinstance(features_cfg, dict) else {}
     backends = entry.get('backends', []) if isinstance(entry, dict) else []
     if not backends:
         backends = cfg.get('catalog', {}).get('voice', [])
 else:
-    entry = cfg.get('features', {}).get(category, {})
+    features_cfg = cfg.get('features', {})
+    entry = features_cfg.get(category, {}) if isinstance(features_cfg, dict) else {}
     models_list = entry.get('models', []) if isinstance(entry, dict) else []
     if not models_list:
         models_list = cfg.get('catalog', {}).get(category, [])
