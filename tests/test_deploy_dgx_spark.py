@@ -1070,3 +1070,24 @@ FEATURES='photo voice'; if feature_selected "$FEATURES" voice; then install_voic
 """)
     assert r.returncode == 0
     assert r.stdout == "install:piper"
+
+def test_interactive_wizard_prompts_and_aborts_before_mutation(tmp_path):
+    deploy_root = tmp_path / 'deployment'
+    fake_bin = tmp_path / 'bin'; fake_bin.mkdir()
+    (fake_bin / 'nvidia-smi').write_text('#!/usr/bin/env bash\nprintf "GB10, [N/A], 12.1\\n"\n')
+    (fake_bin / 'nvidia-smi').chmod(0o755)
+    env = os.environ.copy(); env['CLAWDESS_DEPLOY_ROOT'] = str(deploy_root)
+    env['PATH'] = f'{fake_bin}:/usr/bin:/bin'; env['CLAWDESS_TEST_HOST_PROBE'] = 'allow'
+    # script(1) supplies the child a real tty while preserving scripted answers.
+    answers = '1 2 3\n1\n1\n1\n1\nn\n'
+    result = subprocess.run(
+        ['bash', '-c', f"printf '%s' {answers!r} | script -qec 'bash {CLI} --dry-run' /dev/null"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    output = result.stdout + result.stderr
+    assert 'Select features to enable' in output
+    assert 'provider' in output.lower()
+    assert 'models' in output.lower()
+    assert 'Selection summary' in output
+    assert 'Aborted before mutation' in output
+    assert not deploy_root.exists()

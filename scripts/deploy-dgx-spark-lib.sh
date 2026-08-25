@@ -1327,7 +1327,7 @@ PY2
 #
 select_features() {
     local config="${1:?CONFIG required}"
-    local profile="${2:?PROFILE required}"
+    local profile="${2:-}"
 
     # Validate config exists
     if [[ ! -f "$config" ]]; then

@@ -92,6 +92,50 @@ if [[ "$RESET" == true ]]; then
 fi
 if [[ "$VERBOSE" == true ]]; then printf 'verbose: deploy-root=%s model-root=%s profile=%s\n' "$DEPLOY_ROOT" "$MODEL_ROOT" "$PROFILE"; fi
 
+# A no-profile invocation is the public interactive wizard.  Use /dev/tty so
+# it remains interactive when launched by a shell wrapper or test harness.
+if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
+    if [[ ! -r /dev/tty ]]; then
+        printf 'validation: no profile supplied and no interactive TTY is available; use --profile with --non-interactive\n' >&2
+        exit 2
+    fi
+    printf '=== Clawdess DGX Spark Interactive Wizard ===\n' >&2
+    FEATURES="$(select_features "$CONFIG" "")" || exit 2
+    PROVIDER="$(select_provider "$CONFIG" photo "")" || exit 2
+    IMAGE_MODEL="$(select_model "$CONFIG" photo "")" || exit 2
+    if feature_selected "$FEATURES" video; then
+        VIDEO_MODEL="$(select_model "$CONFIG" video "")" || exit 2
+    else
+        VIDEO_MODEL="$(select_model "$CONFIG" video "" </dev/null)" || exit 2
+    fi
+    if feature_selected "$FEATURES" voice; then
+        TTS_BACKEND="$(select_model "$CONFIG" voice "")" || exit 2
+    else
+        TTS_BACKEND="$(select_model "$CONFIG" voice "" </dev/null)" || exit 2
+    fi
+    TTS_BACKEND="$(validate_voice_backend "$CONFIG" "$TTS_BACKEND")" || exit 2
+    printf '\nSelection summary (no changes made yet):\n' >&2
+    printf '  features: %s\n  provider: %s\n  image model: %s\n  video model: %s\n  voice backend: %s\n' \
+        "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" >&2
+    printf 'Proceed with this plan? [y/N]: ' >&2
+    confirm=''
+    IFS= read -r confirm || confirm=""
+    case "$confirm" in
+        y|Y|yes|YES) ;;
+        *) printf 'Aborted before mutation.\n' >&2; exit 0 ;;
+    esac
+fi
+
+# Persist the approved selection plan before installation, including dry-runs.
+if [[ -n "$PROFILE" || -n "$FEATURES" ]]; then
+    mkdir -p -- "$DEPLOY_ROOT/state"
+    python3 - "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" > "$DEPLOY_ROOT/state/deployment-state.json" <<'PY'
+import json, sys
+f, provider, image, video, voice = sys.argv[1:]
+print(json.dumps({"selected_features": [x for x in f.replace(",", " ").split() if x], "provider": provider, "image_model": image, "video_model": video, "tts_backend": voice}))
+PY
+fi
+
 # ---------------------------------------------------------------------------
 # Cleanup and PID tracking
 # ---------------------------------------------------------------------------

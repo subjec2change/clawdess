@@ -1039,3 +1039,28 @@ def test_generated_lifecycle_scripts_have_bash_syntax(tmp_path):
     assert result.returncode == 0
     for path in (deploy_root / "bin").iterdir():
         assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, path
+
+
+def test_public_command_help_works_from_clean_clone():
+    result = subprocess.run(["bash", str(CLI), "--help"], cwd=ROOT, text=True, capture_output=True)
+    assert result.returncode == 0
+    assert "interactive" in (result.stdout + result.stderr).lower()
+
+def test_interactive_no_profile_shows_summary_and_waits_before_mutation(tmp_path):
+    deploy_root = tmp_path / "deployment"; fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    smi = fake_bin / "nvidia-smi"; smi.write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'\n"); smi.chmod(0o755)
+    env = os.environ.copy(); env.update({"CLAWDESS_DEPLOY_ROOT": str(deploy_root), "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"})
+    command = f"printf '1\n1\n1\n1\nn\n' | bash {CLI}"
+    result = subprocess.run(["script", "-q", "-c", command, "/dev/null"], cwd=ROOT, env=env, text=True, capture_output=True)
+    output = result.stdout + result.stderr
+    assert "selection summary" in output.lower(); assert "aborted" in output.lower(); assert not (deploy_root / "state").exists()
+
+def test_interactive_no_profile_persists_selected_values_on_dry_run(tmp_path):
+    deploy_root = tmp_path / "deployment"; fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    smi = fake_bin / "nvidia-smi"; smi.write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'\n"); smi.chmod(0o755)
+    env = os.environ.copy(); env.update({"CLAWDESS_DEPLOY_ROOT": str(deploy_root), "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"})
+    command = f"printf '1\n1\n1\n1\ny\n' | bash {CLI} --dry-run"
+    result = subprocess.run(["script", "-q", "-c", command, "/dev/null"], cwd=ROOT, env=env, text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    state = json.loads((deploy_root / "state" / "deployment-state.json").read_text())
+    assert state["selected_features"] == ["photo"]; assert state["provider"] == "local"; assert state["tts_backend"] == "piper-voice"
