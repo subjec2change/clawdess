@@ -106,12 +106,12 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
     PROVIDER="$(select_provider "$CONFIG" photo "" 0<&3)" || exit 2
     IMAGE_MODEL="$(select_model "$CONFIG" photo "" 0<&3)" || exit 2
     if feature_selected "$FEATURES" video; then
-        VIDEO_MODEL="$(select_model "$CONFIG" video "")" || exit 2
+        VIDEO_MODEL="$(select_model "$CONFIG" video "" 0<&3)" || exit 2
     else
         VIDEO_MODEL=""
     fi
     if feature_selected "$FEATURES" voice; then
-        TTS_BACKEND="$(select_model "$CONFIG" voice "")" || exit 2
+        TTS_BACKEND="$(select_model "$CONFIG" voice "" 0<&3)" || exit 2
         TTS_BACKEND="$(validate_voice_backend "$CONFIG" "$TTS_BACKEND")" || exit 2
     else
         TTS_BACKEND="piper-voice"
