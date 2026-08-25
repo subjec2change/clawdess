@@ -1543,6 +1543,8 @@ f = cfg.get('features', {})
 if isinstance(f, dict):
     e = f.get(category, {}); items = e.get('backends' if category == 'voice' else 'models', []) if isinstance(e, dict) else []
 else:
+    items = []
+if not items:
     items = cfg.get('catalog', {}).get(category, [])
 print(items[0] if items else '')
 " "$config" "$category")
@@ -1558,10 +1560,16 @@ import json, sys
 cfg = json.load(open(sys.argv[1]))
 category = sys.argv[2]
 if category == 'voice':
-    backends = cfg.get('features', {}).get('voice', {}).get('backends', [])
+    entry = cfg.get('features', {}).get('voice', {})
+    backends = entry.get('backends', []) if isinstance(entry, dict) else []
+    if not backends:
+        backends = cfg.get('catalog', {}).get('voice', [])
     models = [(b, cfg.get('models', {}).get(b, {})) for b in backends]
 else:
-    models_list = cfg.get('features', {}).get(category, {}).get('models', [])
+    entry = cfg.get('features', {}).get(category, {})
+    models_list = entry.get('models', []) if isinstance(entry, dict) else []
+    if not models_list:
+        models_list = cfg.get('catalog', {}).get(category, [])
     models = [(m, cfg.get('models', {}).get(m, {})) for m in models_list]
 
 for i, (key, meta) in enumerate(models, 1):
@@ -1583,9 +1591,15 @@ cfg = json.load(open(sys.argv[1]))
 category = sys.argv[2]
 choice = int(sys.argv[3])
 if category == 'voice':
-    backends = cfg.get('features', {}).get('voice', {}).get('backends', [])
+    entry = cfg.get('features', {}).get('voice', {})
+    backends = entry.get('backends', []) if isinstance(entry, dict) else []
+    if not backends:
+        backends = cfg.get('catalog', {}).get('voice', [])
 else:
-    models_list = cfg.get('features', {}).get(category, {}).get('models', [])
+    entry = cfg.get('features', {}).get(category, {})
+    models_list = entry.get('models', []) if isinstance(entry, dict) else []
+    if not models_list:
+        models_list = cfg.get('catalog', {}).get(category, [])
 models = backends if category == 'voice' else models_list
 if 1 <= choice <= len(models):
     print(models[choice - 1])
