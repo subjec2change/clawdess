@@ -108,13 +108,13 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
     if feature_selected "$FEATURES" video; then
         VIDEO_MODEL="$(select_model "$CONFIG" video "" 0<&3)" || exit 2
     else
-        VIDEO_MODEL=""
+        VIDEO_MODEL="$(select_model "$CONFIG" video "" 0<&3)" || exit 2
     fi
     if feature_selected "$FEATURES" voice; then
         TTS_BACKEND="$(select_model "$CONFIG" voice "" 0<&3)" || exit 2
         TTS_BACKEND="$(validate_voice_backend "$CONFIG" "$TTS_BACKEND")" || exit 2
     else
-        TTS_BACKEND="piper-voice"
+        TTS_BACKEND="$(select_model "$CONFIG" voice "" 0<&3)" || exit 2
     fi
     printf '\nSelection summary (no changes made yet):\n' >&2
     printf '  features: %s\n  provider: %s\n  image model: %s\n  video model: %s\n  voice backend: %s\n' \
