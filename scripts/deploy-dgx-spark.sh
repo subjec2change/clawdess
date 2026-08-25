@@ -124,7 +124,9 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
     IFS= read -r confirm <&3 || confirm=""
     case "$confirm" in
         y|Y|yes|YES) ;;
-        *) printf 'Aborted before mutation.\n' >&2; exit 0 ;;
+        *) printf 'Aborted before mutation.\n' >&2
+            rm -rf -- "$DEPLOY_ROOT" 2>/dev/null
+            exit 0 ;;
     esac
 fi
 

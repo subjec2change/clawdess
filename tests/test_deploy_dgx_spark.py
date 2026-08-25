@@ -1081,8 +1081,8 @@ def test_interactive_wizard_prompts_and_aborts_before_mutation(tmp_path):
     # script(1) supplies the child a real tty while preserving scripted answers.
     answers = '1 2 3\n1\n1\n1\n1\nn\n'
     result = subprocess.run(
-        ['bash', '-c', f"printf '%s' {answers!r} | script -qec 'bash {CLI} --dry-run' /dev/null"],
-        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+        ['script' , '-qec' , f'bash {CLI} --dry-run' , '/dev/null'],
+        cwd=ROOT, env=env, input=answers, text=True, capture_output=True, check=False,
     )
     output = result.stdout + result.stderr
     assert 'Select features to enable' in output

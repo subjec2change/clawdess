@@ -1059,7 +1059,7 @@ def test_interactive_no_profile_persists_selected_values_on_dry_run(tmp_path):
     deploy_root = tmp_path / "deployment"; fake_bin = tmp_path / "bin"; fake_bin.mkdir()
     smi = fake_bin / "nvidia-smi"; smi.write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'\n"); smi.chmod(0o755)
     env = os.environ.copy(); env.update({"CLAWDESS_DEPLOY_ROOT": str(deploy_root), "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"})
-    command = f"printf '1\n1\n1\n1\ny\n' | bash {CLI} --dry-run"
+    command = f"printf '1\n1\n1\n1\n1\ny\n' | bash {CLI} --dry-run"
     result = subprocess.run(["script", "-q", "-c", command, "/dev/null"], cwd=ROOT, env=env, text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
     state = json.loads((deploy_root / "state" / "deployment-state.json").read_text())
