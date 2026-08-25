@@ -101,9 +101,10 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
     fi
     printf '=== Clawdess DGX Spark Interactive Wizard ===\n' >&2
     export CLAWDESS_INTERACTIVE_WIZARD=1
-    FEATURES="$(select_features "$CONFIG" "")" || exit 2
-    PROVIDER="$(select_provider "$CONFIG" photo "")" || exit 2
-    IMAGE_MODEL="$(select_model "$CONFIG" photo "")" || exit 2
+    exec 3<&0
+    FEATURES="$(select_features "$CONFIG" "" 0<&3)" || exit 2
+    PROVIDER="$(select_provider "$CONFIG" photo "" 0<&3)" || exit 2
+    IMAGE_MODEL="$(select_model "$CONFIG" photo "" 0<&3)" || exit 2
     if feature_selected "$FEATURES" video; then
         VIDEO_MODEL="$(select_model "$CONFIG" video "")" || exit 2
     else
@@ -120,7 +121,7 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
         "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" >&2
     printf 'Proceed with this plan? [y/N]: ' >&2
     confirm=''
-    IFS= read -r confirm || confirm=""
+    IFS= read -r confirm <&3 || confirm=""
     case "$confirm" in
         y|Y|yes|YES) ;;
         *) printf 'Aborted before mutation.\n' >&2; exit 0 ;;
