@@ -1364,7 +1364,7 @@ if isinstance(data, list):
     fi
 
     # Profile not found or has no features — fall back to non-interactive/interactive
-    if [[ -t 0 ]]; then
+    if [[ -n "${CLAWDESS_INTERACTIVE_WIZARD:-}" || -t 0 ]]; then
         # Interactive: prompt user
         printf 'Select features to enable:\n' >&2
         printf '  1) photo\n' >&2
@@ -1454,7 +1454,7 @@ print(p.get('provider', 'local'))
     fi
 
     # 3. Non-interactive — default to 'local'
-    if [[ ! -t 0 ]]; then
+    if [[ -z "${CLAWDESS_INTERACTIVE_WIZARD:-}" && ! -t 0 ]]; then
         printf 'local\n'
         return 0
     fi
@@ -1534,7 +1534,7 @@ print(aliases.get(model, model))
     fi
 
     # 3. Non-interactive default (first catalog entry)
-    if [[ ! -t 0 ]]; then
+    if [[ -z "${CLAWDESS_INTERACTIVE_WIZARD:-}" && ! -t 0 ]]; then
         local default_model
         default_model=$(python3 -c "
 import json, sys

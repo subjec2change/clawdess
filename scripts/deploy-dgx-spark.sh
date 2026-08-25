@@ -100,6 +100,7 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
         exit 2
     fi
     printf '=== Clawdess DGX Spark Interactive Wizard ===\n' >&2
+    export CLAWDESS_INTERACTIVE_WIZARD=1
     FEATURES="$(select_features "$CONFIG" "")" || exit 2
     PROVIDER="$(select_provider "$CONFIG" photo "")" || exit 2
     IMAGE_MODEL="$(select_model "$CONFIG" photo "")" || exit 2
