@@ -233,10 +233,11 @@ else
     fi
 
     # PEP 668: Remove EXTERNALLY-MANAGED marker so pip can install packages
-    # in this owned venv (no-op on Python <3.12 or systems without the marker)
-    EXTERNALLY_MANAGED="$VENV_PATH/lib/python*/EXTERNALLY-MANAGED"
-    if [[ -e "$EXTERNALLY_MANAGED" ]]; then
-        rm -f -- "$EXTERNALLY_MANAGED"
+    # in this owned venv. Uses find to locate the marker (works across
+    # Python 3.11/3.12/3.13 regardless of the site-packages dir name).
+    _externally_managed="$(find "$VENV_PATH/lib" -maxdepth 2 -name EXTERNALLY-MANAGED -type f 2>/dev/null | head -n 1)"
+    if [[ -n "$_externally_managed" && -f "$_externally_managed" ]]; then
+        rm -f -- "$_externally_managed"
         printf 'python: removed EXTERNALLY-MANAGED marker (PEP 668)\n'
     fi
 
