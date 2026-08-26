@@ -669,7 +669,7 @@ install_comfyui() {
     local comfyui_req_tmp
     comfyui_req_tmp="$(mktemp)"
     grep -v '^\s*--hash=' "$comfyui_path/requirements.txt" > "$comfyui_req_tmp" || true
-    "$venv_python" -m pip install --no-cache-dir -r "$comfyui_req_tmp" 2>&1 | tail -5 || {
+    "$venv_python" -m pip install --no-cache-dir -r "$comfyui_req_tmp" || {
         printf 'comfyui: dependency install failed\n' >&2
         rm -f -- "$comfyui_req_tmp"
         return 1
@@ -995,7 +995,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 export PYTHONUNBUFFERED=1
 echo "Starting ComfyUI..."
-"$SCRIPT_DIR/venv/bin/python" "$SCRIPT_DIR/artifacts/comfyui-runner.py" "$@"
+"$SCRIPT_DIR/venv/bin/python" "$SCRIPT_DIR/artifacts/ComfyUI/main.py" "$@"
 echo "ComfyUI started"
 SCRIPT
 

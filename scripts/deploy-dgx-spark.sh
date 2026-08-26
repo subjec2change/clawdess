@@ -243,14 +243,14 @@ else
 
     # Install dependencies
     printf 'python: installing dependencies\n'
-    "$VENV_PATH/bin/pip" install --upgrade pip wheel setuptools 2>&1 | tail -3 || {
+    "$VENV_PATH/bin/pip" install --upgrade pip wheel setuptools || {
         on_error 1 "$LINENO" "pip upgrade failed"
         exit 1
     }
 
     # Install PyTorch for ARM64 (CPU-only, no CUDA toolkit required)
     printf 'python: installing PyTorch (CPU)\n'
-    "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 2>&1 | tail -5 || {
+    "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu || {
         on_error 1 "$LINENO" "PyTorch install failed"
         exit 1
     }
@@ -375,7 +375,7 @@ printf '=== Phase 7: Service Startup ===\n'
 if [[ "$DRY_RUN" == false ]]; then
     # Start ComfyUI first
     printf 'startup: starting ComfyUI...\n'
-    nohup "$VENV_PATH/bin/python" "$COMFYUI_PATH/comfyui-runner.py" > "$DEPLOY_ROOT/logs/comfyui.log" 2>&1 &
+    nohup "$VENV_PATH/bin/python" "$COMFYUI_PATH/main.py" > "$DEPLOY_ROOT/logs/comfyui.log" 2>&1 &
     COMFYUI_PID=$!
     track_pid "$COMFYUI_PID" "comfyui"
     printf 'startup: ComfyUI started (pid %s)\n' "$COMFYUI_PID"
