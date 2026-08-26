@@ -2,7 +2,9 @@
   "features": [
     "photo",
     "video",
-    "voice"
+    "voice",
+    "llama",
+    "text-generation"
   ],
   "profiles": {
     "minimal": {
@@ -34,12 +36,23 @@
       "video_model": "wan2gp-i2v-14B",
       "tts_backend": "piper"
     },
-    "all": {
+    "llm": {
+      "label": "Photo + LLM inference (vLLM)",
+      "features": [
+        "photo",
+        "text-generation"
+      ],
+      "photo_model": "juggernaut-xl-v10",
+      "tts_backend": "piper"
+    },
+    "full": {
       "label": "All features",
       "features": [
         "photo",
         "video",
-        "voice"
+        "voice",
+        "llama",
+        "text-generation"
       ],
       "photo_model": "juggernaut-xl-v10",
       "video_model": "wan2gp-i2v-14B",
@@ -203,6 +216,38 @@
       },
       "minimum_size_bytes": 12000000000,
       "required": false
+    },
+    "llama3-gguf": {
+      "source": "https://huggingface.co/mlc-ai/Meta-Llama-3-8B-Instruct",
+      "revision": "main",
+      "files": {
+        "gguf_models": [
+          {
+            "source": "https://huggingface.co/mlc-ai/Meta-Llama-3-8B-Instruct/resolve/main/Meta-Llama-3-8B-Instruct-Q4_K_M.gguf",
+            "filename": "Meta-Llama-3-8B-Instruct-Q4_K_M.gguf",
+            "minimum_size_bytes": 5000000000,
+            "required": true,
+            "checksum": null,
+            "destination": "gguf_models"
+          }
+        ]
+      },
+      "minimum_size_bytes": 5000000000,
+      "required": false,
+      "description": "Llama 3 8B GGUF quantized for local inference via llama.cpp",
+      "vram_required_gb": 4
+    },
+    "llama-3.1-8b-instruct": {
+      "source": "https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct",
+      "revision": "main",
+      "description": "Llama 3.1 8B Instruct — text generation via vLLM on GB10",
+      "vram_required_gb": 8,
+      "pip_dependencies": [
+        "transformers",
+        "accelerate",
+        "bitsandbytes"
+      ],
+      "destination": "text_models"
     }
   },
   "aliases": {
@@ -223,6 +268,12 @@
     ],
     "voice": [
       "piper-voice"
+    ],
+    "llama": [
+      "llama3-gguf"
+    ],
+    "text-generation": [
+      "llama-3.1-8b-instruct"
     ]
   },
   "voice_backends": {

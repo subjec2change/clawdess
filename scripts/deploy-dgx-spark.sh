@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# DGX Spark Deployment Wizard — entry point.
-# Usage:
-#   ./scripts/deploy-dgx-spark.sh --profile minimal --image-model juggernaut-xl-v10 --tts-backend piper [--dry-run] [--non-interactive] [--yes]
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +17,7 @@ FEATURES=""
 PROVIDER=""
 IMAGE_MODEL=""
 VIDEO_MODEL=""
+TEXT_MODEL=""
 TTS_BACKEND=""
 DRY_RUN=false
 NON_INTERACTIVE=false
@@ -50,6 +47,7 @@ while [[ $# -gt 0 ]]; do
         --provider) PROVIDER="$2"; shift 2 ;;
         --image-model) IMAGE_MODEL="$2"; shift 2 ;;
         --video-model) VIDEO_MODEL="$2"; shift 2 ;;
+        --text-model) TEXT_MODEL="$2"; shift 2 ;;
         --tts-backend) TTS_BACKEND="$2"; shift 2 ;;
         --deploy-root) DEPLOY_ROOT="$2"; shift 2 ;;
         --model-root) MODEL_ROOT="$2"; shift 2 ;;
@@ -59,7 +57,7 @@ while [[ $# -gt 0 ]]; do
         --verbose) VERBOSE=true; shift ;;
         --reset) RESET=true; shift ;;
         --help)
-            printf 'Usage: %s [--profile minimal|media|assistant|all] [--features <list>] [--provider local|remote] [--image-model <model>] [--video-model <model>] [--tts-backend <backend>] [--deploy-root <path>] [--model-root <path>] [--dry-run] [--non-interactive] [--verbose] [--reset] [--yes]\n' "$0"
+            printf 'Usage: %s [--profile minimal|media|assistant|llm|all] [--features <list>] [--provider local|remote] [--image-model <model>] [--video-model <model>] [--text-model <model>] [--tts-backend <backend>] [--deploy-root <path>] [--model-root <path>] [--dry-run] [--non-interactive] [--verbose] [--reset] [--yes]\n' "$0"
             exit 0
             ;;
         *)
@@ -77,7 +75,7 @@ STATE_ROOT="$DEPLOY_ROOT"
 RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 LOG_FILE="$RUN_LOG"
 mkdir -p -- "$(dirname -- "$RUN_LOG")"
-trap 'status=$?; trap - ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
+trap 'status=$?; trap - EXIT ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
 
 if [[ "$NON_INTERACTIVE" == true && -z "$PROFILE" ]]; then
     PHASE="validation"
@@ -116,9 +114,15 @@ if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
     else
         TTS_BACKEND="$(select_model "$CONFIG" voice "" 0<&3)" || exit 2
     fi
+    # Text generation model selection (vLLM / Llama) — only when the feature is active
+    if feature_selected "$FEATURES" "text-generation"; then
+        TEXT_MODEL="$(select_model "$CONFIG" "text-generation" "" 0<&3)" || exit 2
+    else
+        TEXT_MODEL=""
+    fi
     printf '\nSelection summary (no changes made yet):\n' >&2
-    printf '  features: %s\n  provider: %s\n  image model: %s\n  video model: %s\n  voice backend: %s\n' \
-        "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" >&2
+    printf '  features: %s\n  provider: %s\n  image model: %s\n  video model: %s\n  voice backend: %s\n  text model: %s\n' \
+        "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" "$TEXT_MODEL" >&2
     printf 'Proceed with this plan? [y/N]: ' >&2
     confirm=''
     IFS= read -r confirm <&3 || confirm=""
@@ -133,10 +137,10 @@ fi
 # Persist the approved selection plan before installation, including dry-runs.
 if [[ -n "$PROFILE" || -n "$FEATURES" ]]; then
     mkdir -p -- "$DEPLOY_ROOT/state"
-    python3 - "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" > "$DEPLOY_ROOT/state/deployment-state.json" <<'PY'
+    python3 - "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TEXT_MODEL" "$TTS_BACKEND" > "$DEPLOY_ROOT/state/deployment-state.json" <<'PY'
 import json, sys
-f, provider, image, video, voice = sys.argv[1:]
-print(json.dumps({"selected_features": [x for x in f.replace(",", " ").split() if x], "provider": provider, "image_model": image, "video_model": video, "tts_backend": voice}))
+f, provider, image, video, text_model, voice = sys.argv[1:]
+print(json.dumps({"selected_features": [x for x in f.replace(",", " ").split() if x], "provider": provider, "image_model": image, "video_model": video, "tts_backend": voice, "text_model": text_model}))
 PY
 fi
 
@@ -248,12 +252,42 @@ else
         exit 1
     }
 
-    # Install PyTorch for ARM64 (CPU-only, no CUDA toolkit required)
-    printf 'python: installing PyTorch (CPU)\n'
-    "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu || {
-        on_error 1 "$LINENO" "PyTorch install failed"
-        exit 1
-    }
+    # Install PyTorch — CUDA if GPU available, CPU otherwise
+    _cuda_available=false
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        _cuda_available=true
+    fi
+
+    if [[ "$_cuda_available" == true ]]; then
+        printf 'python: installing PyTorch (nightly cu128, sm_121 support for GB10)\\n'
+        "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/nightly/cu128 || {
+            on_error 1 "$LINENO" "PyTorch nightly cu128 install failed (try --profile minimal without photo feature, or use Docker)"
+            exit 1
+        }
+    else
+        printf 'python: installing PyTorch (CPU-only)\\n'
+        "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/cpu || {
+            on_error 1 "$LINENO" "PyTorch CPU install failed"
+            exit 1
+        }
+    fi
+
+    # -----------------------------------------------------------------------
+    # install_vllm — best-effort vLLM installation for text-generation feature
+    # -----------------------------------------------------------------------
+    if feature_selected "$FEATURES" "text-generation"; then
+        if [[ -x "$VENV_PATH/bin/python" ]]; then
+            if ! install_vllm "$VENV_PATH/bin/python"; then
+                printf 'vllm: installation deferred (best-effort; photo/ComfyUI unaffected)\n' >&2
+            fi
+        else
+            printf 'vllm: venv python not found at %s; skipping vLLM install\n' "$VENV_PATH/bin/python" >&2
+        fi
+    else
+        printf 'vllm: text-generation feature not selected; vLLM install skipped\n' >&2
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -311,7 +345,7 @@ if [[ "$DRY_RUN" != true ]]; then
     fi
 fi
 
-SELECTION_JSON="$(printf "%s\n" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" | python3 -c 'import json,re,sys; a=sys.stdin.read().splitlines(); print(json.dumps({"selected_features":[x for x in re.split(r"[\s,]+",a[0].strip()) if x],"provider":a[1],"image_model":a[2],"video_model":a[3],"tts_backend":a[4]},separators=(",",":")))')"
+SELECTION_JSON="$(printf "%s\n" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TEXT_MODEL" "$TTS_BACKEND" | python3 -c 'import json,re,sys; a=sys.stdin.read().splitlines(); print(json.dumps({"selected_features":[x for x in re.split(r"[\\s,]+",a[0].strip()) if x],"provider":a[1],"image_model":a[2],"video_model":a[3],"tts_backend":a[5],"text_model":a[4]},separators=(",",":")))')"
 
 if [[ "$PROVIDER" == "remote" ]]; then
     printf 'remote provider: skipping local model acquisition\n'

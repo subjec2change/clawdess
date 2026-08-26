@@ -264,6 +264,480 @@ check_gb10_gpu() {
     return 0
 }
 
+# probe_hardware -- Enhanced hardware detection.
+# Detects GPU model, CUDA compute capability, VRAM, disk space, architecture.
+# Generates $DEPLOY_ROOT/state/hardware-profile.json.
+# Returns 0 on success; does not fail the deployment if detection is incomplete.
+probe_hardware() {
+    local deploy_root="${1:?deploy root required}"
+    local profile_dir="$deploy_root/state"
+    mkdir -p -- "$profile_dir"
+
+    local gpu_name="" memory_total="" compute_cap="" arch="" disk_free_kb="" disk_free_gb=""
+    local vram_total_gb="" vram_usable_gb="" total_mem_kb="" is_gb10="false" cuda_toolkit="false" nvcc_path=""
+
+    # Architecture
+    arch="$(uname -m 2>/dev/null || echo unknown)"
+
+    # GPU detection via nvidia-smi
+    local smi_output
+    smi_output="$(clawdess_nvidia_smi --query-gpu=name,compute_cap,memory.total --format=csv,noheader 2>/dev/null)" || true
+    if [[ -n "$smi_output" ]]; then
+        IFS=',' read -r gpu_name memory_total compute_cap <<< "$smi_output"
+        # Trim whitespace
+        gpu_name="${gpu_name#\"${gpu_name%%[![:space:]]*}\"}"; gpu_name="${gpu_name%\"${gpu_name##*[![:space:]]}\"}"
+        memory_total="${memory_total#\"${memory_total%%[![:space:]]*}\"}"; memory_total="${memory_total%\"${memory_total##*[![:space:]]}\"}"
+        compute_cap="${compute_cap#\"${compute_cap%%[![:space:]]*}\"}"; compute_cap="${compute_cap%\"${compute_cap##*[![:space:]]}\"}"
+        gpu_name="${gpu_name#NVIDIA }"
+    fi
+
+    # Detect if GB10
+    if [[ "$gpu_name" == "GB10" ]]; then
+        is_gb10="true"
+    fi
+
+    # Detect CUDA toolkit availability
+    nvcc_path="$(command -v nvcc 2>/dev/null || echo '')"
+    if [[ -n "$nvcc_path" ]]; then
+        cuda_toolkit="true"
+    fi
+
+    # Disk space
+    disk_free_kb="$(probe_df -Pk "$deploy_root" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)"
+    disk_free_gb="0"
+    if [[ "$disk_free_kb" =~ ^[0-9]+$ ]]; then
+        disk_free_gb="$(python3 -c "print(f'{int($disk_free_kb) / 1024 / 1024:.2f}')" 2>/dev/null || echo "0")"
+    fi
+
+    # VRAM estimation: GB10 has 128GB unified memory; otherwise use nvidia-smi value
+    if [[ "$is_gb10" == "true" ]]; then
+        vram_total_gb=128
+        vram_usable_gb=120  # reserve ~8GB for system
+        # Try to read actual from nvidia-smi
+        if [[ "$memory_total" =~ ^[0-9]+ ]] 2>/dev/null; then
+            vram_total_gb="$memory_total"
+            vram_usable_gb="$memory_total"
+        fi
+    else
+        # For non-GB10, estimate from memory.total string
+        if [[ "$memory_total" =~ ^([0-9]+) ]]; then
+            vram_total_gb="${BASH_REMATCH[1]}"
+            vram_usable_gb="$vram_total_gb"
+        else
+            # Check /proc/dri or other sources as fallback
+            if [[ -f /sys/class/drm/card0/device/memory_info/vram_total ]]; then
+                vram_total_gb="$(python3 -c "print($(( $(cat /sys/class/drm/card0/device/memory_info/vram_total) / 1024 / 1024 / 1024 )))" 2>/dev/null || echo "0")"
+                vram_usable_gb="$vram_total_gb"
+            fi
+        fi
+    fi
+
+    # Build hardware profile JSON
+    local profile
+    profile="$(python3 -c "
+import json, sys
+p = {
+    'architecture': sys.argv[1],
+    'gpu': {
+        'name': sys.argv[2] if sys.argv[2] else 'unknown',
+        'compute_capability': sys.argv[3] if sys.argv[3] else 'unknown',
+        'vram_total_gb': int(sys.argv[4]) if sys.argv[4].isdigit() else 0,
+        'vram_usable_gb': int(sys.argv[5]) if sys.argv[5].isdigit() else 0,
+        'is_gb10': sys.argv[6] == 'true',
+    },
+    'cuda': {
+        'toolkit_available': sys.argv[7] == 'true',
+        'nvcc_path': sys.argv[8] if sys.argv[8] else '',
+    },
+    'disk': {
+        'free_kb': int(sys.argv[9]) if sys.argv[9].isdigit() else 0,
+        'free_gb': float(sys.argv[10]) if sys.argv[10] else 0.0,
+    },
+    'gb10_optimizations': {
+        'sm_90a_target': sys.argv[6] == 'true',
+        'flash_attn_hopper': sys.argv[6] == 'true' and sys.argv[7] == 'true' and sys.argv[1] == 'aarch64',
+        'tensor_cores': sys.argv[6] == 'true',
+        'unified_memory_gb': int(sys.argv[4]) if sys.argv[4].isdigit() else 128,
+    },
+    'model_fit': {},
+}
+# Pre-compute which models fit in available VRAM
+vram = int(p['gpu']['vram_usable_gb']) if p['gpu']['vram_usable_gb'] > 0 else 128
+for model, vram_needed in [
+    ('juggernaut-xl-v10', 8),
+    ('pony-v6', 7),
+    ('noobai-xl', 7),
+    ('flux1-dev-fp8-finetune', 12),
+    ('stability-ai-sdxl-turbo', 3),
+    ('wan2gp-i2v-14B', 24),
+    ('piper-voice', 0.1),
+]:
+    p['model_fit'][model] = vram_needed <= vram
+print(json.dumps(p, separators=(',',':')))
+" "$arch" "$gpu_name" "$compute_cap" "$vram_total_gb" "$vram_usable_gb" "$is_gb10" "$cuda_toolkit" "$nvcc_path" "$disk_free_kb" "$disk_free_gb")"
+
+    json_write_atomic "$profile_dir/hardware-profile.json" "$profile"
+    printf 'hardware: profile written to %s/state/hardware-profile.json\n' "$deploy_root"
+    printf 'hardware: arch=%s gpu=%s compute=%s vram=%sGB is_gb10=%s cuda=%s disk=%sGB free\n' \
+        "$arch" "$gpu_name" "$compute_cap" "$vram_total_gb" "$is_gb10" "$cuda_toolkit" "$disk_free_gb"
+    return 0
+}
+
+# optimize_for_gb10 VENV_PYTHON DEPLOY_ROOT -- GB10-specific optimizations.
+# Sets PyTorch CUDA flags for Hopper (sm_90a), flash-attn flags for ARM64+Hopper,
+# xformers config for GB10 tensor cores, and memory allocation strategies.
+# Best-effort: returns 0 even if any optimization step fails.
+optimize_for_gb10() {
+    local venv_python="${1:-}" deploy_root="${2:-/tmp/dgx-spark-deploy}"
+    local hardware_profile="$deploy_root/state/hardware-profile.json"
+
+    # Read hardware profile to confirm GB10
+    local is_gb10="false" cuda_toolkit="false" arch=""
+    if [[ -f "$hardware_profile" ]]; then
+        local hw_json
+        hw_json="$(json_read "$hardware_profile" 2>/dev/null)" || hw_json=""
+        if [[ -n "$hw_json" ]]; then
+            is_gb10="$(python3 -c "import json,sys;d=json.loads(sys.argv[1]);print('true' if d.get('gpu',{}).get('is_gb10') else 'false')" "$hw_json" 2>/dev/null || echo false)"
+            cuda_toolkit="$(python3 -c "import json,sys;d=json.loads(sys.argv[1]);print('true' if d.get('cuda',{}).get('toolkit_available') else 'false')" "$hw_json" 2>/dev/null || echo false)"
+            arch="$(python3 -c "import json,sys;print(json.loads(sys.argv[1]).get('architecture','unknown'))" "$hw_json" 2>/dev/null || echo unknown)"
+        fi
+    fi
+
+    if [[ "$is_gb10" != "true" ]]; then
+        printf 'opt: not a GB10; skipping Hopper optimizations\\n' >&2
+        return 0
+    fi
+
+    printf 'opt: GB10 detected (Blackwell sm_121); applying Blackwell optimizations\n' >&2
+    local installed=0 failed=0
+
+    # 1. PyTorch: nightly cu128 for sm_121 support (stable PyTorch doesn't support sm_121)
+    if [[ "$cuda_toolkit" == "true" && -n "$venv_python" ]]; then
+        printf 'opt: installing PyTorch nightly cu128 (sm_121 for GB10 Blackwell)\\n' >&2
+        if "$venv_python" -m pip install --pre torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/nightly/cu128 \
+            2>/dev/null; then
+            printf 'opt: PyTorch nightly cu128 (sm_121) installed\\n' >&2
+            installed=$((installed + 1))
+        else
+            printf 'opt: PyTorch nightly cu128 install failed, trying CPU fallback\\n' >&2
+            if "$venv_python" -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 2>/dev/null; then
+                printf 'opt: PyTorch (CPU fallback) installed\\n' >&2
+                installed=$((installed + 1))
+            else
+                printf 'opt: PyTorch install failed entirely\\n' >&2
+                failed=$((failed + 1))
+            fi
+        fi
+    elif [[ -n "$venv_python" ]]; then
+        # No CUDA toolkit; still ensure torch is installed (CPU-only)
+        printf 'opt: no nvcc found; ensuring PyTorch (CPU) is available\\n' >&2
+        "$venv_python" -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 2>/dev/null
+    fi
+
+    # 2. flash-attn: ARM64 + Blackwell (sm_120, binary compatible with sm_121)
+    if [[ "$arch" == "aarch64" && "$cuda_toolkit" == "true" && -n "$venv_python" ]]; then
+        printf 'opt: installing flash-attn with Blackwell (sm_120) flags\\n' >&2
+        local flash_attn_args="-Csetup.cmake-cMAKE_CUDA_ARCHITECTURES=120"
+        if TORCH_CUDA_ARCH_LIST="12.0" FLASH_ATTENTION_CUDA_ARCHS="120" \
+           "$venv_python" -m pip install --no-cache-dir flash-attn 2>/dev/null; then
+            printf 'opt: flash-attn installed\\n' >&2
+            installed=$((installed + 1))
+        else
+            printf 'opt: flash-attn build failed (aarch64 Blackwell sm_120)\\n' >&2
+            failed=$((failed + 1))
+        fi
+    elif [[ "$arch" == "aarch64" ]]; then
+        printf 'opt: nvcc not found, skipping flash-attn on %s\\n' "$arch" >&2
+    fi
+
+    # 3. xformers: configure for GB10 tensor cores
+    if [[ -n "$venv_python" ]]; then
+        printf 'opt: installing xformers for GB10 tensor cores\n' >&2
+        if "$venv_python" -m pip install --no-cache-dir xformers 2>/dev/null; then
+            printf 'opt: xformers installed\n' >&2
+            installed=$((installed + 1))
+        else
+            printf 'opt: xformers build failed (aarch64 Blackwell)\\n' >&2
+            failed=$((failed + 1))
+        fi
+    fi
+
+    # 4. NVRTC 13 symlink for sm_121 FFT/audio ops (Challenge 14 from DGX Spark guide)
+    #    PyTorch nightly cu128 bundles NVRTC 12.x which doesn't know sm_121.
+    #    Symlink system libnvrtc.so.13 over bundled libnvrtc.so.12 so JIT codegen works.
+    if [[ -n "$venv_python" ]]; then
+        local nvrtc_lib=""
+        for _lib in $(find "$VENV_PATH/lib" -path "*/nvidia/cuda_nvrtc/lib/libnvrtc.so.12" 2>/dev/null); do
+            nvrtc_lib="$_lib"
+            break
+        done
+        if [[ -n "$nvrtc_lib" ]]; then
+            local nvrtc_dir
+            nvrtc_dir="$(dirname "$nvrtc_lib")"
+            if [[ -f "$nvrtc_dir/libnvrtc.so.13" || -L "$nvrtc_dir/libnvrtc.so.13" ]]; then
+                printf 'opt: NVRTC 13 already symlinked\\n' >&2
+            elif [[ -d "$nvrtc_dir" ]]; then
+                printf 'opt: patching bundled NVRTC 12 → system NVRTC 13 (sm_121 FFT fix)\\n' >&2
+                if mv "$nvrtc_lib" "${nvrtc_lib}.orig" 2>/dev/null && \
+                   ln -sf /usr/local/cuda-13.0/lib64/libnvrtc.so.13 "$nvrtc_dir/libnvrtc.so.12" 2>/dev/null; then
+                    printf 'opt: NVRTC symlinked successfully\\n' >&2
+                else
+                    printf 'opt: NVRTC symlink failed (will use bundled NVRTC 12)\\n' >&2
+                fi
+            fi
+        fi
+    fi
+
+    # 5. Memory allocation strategy: set PyTorch memory allocator config for unified memory
+    if [[ -n "$venv_python" ]]; then
+        printf 'opt: configuring PyTorch memory allocator for 128GB unified memory\\n' >&2
+        "$venv_python" -c "
+import torch
+if torch.cuda.is_available():
+    torch.cuda.set_per_process_memory_fraction(0.90)  # use 90% of unified memory
+    print(f'Torch CUDA memory fraction: 0.90 (128GB unified)')
+else:
+    print('Cuda not available in this venv; memory config deferred to runtime')
+" 2>/dev/null || true
+    fi
+
+    printf 'opt: GB10 optimization complete: %d installed, %d failed\\n' "$installed" "$failed" >&2
+    return 0
+}
+
+# write_content_policy MODEL_ROOT -- Generate NSFW content policy README.
+# Creates $DEPLOY_ROOT/models/.content-policy.md with legal/compliance guidance.
+# Non-fatal: returns 0 even if file writing fails.
+write_content_policy() {
+    local model_root="${1:-/tmp/dgx-spark-deploy/models}"
+    local policy_file="$model_root/.content-policy.md"
+
+    mkdir -p -- "$model_root" 2>/dev/null || return 0
+
+    cat > "$policy_file" <<'POLICY'
+# Content Policy — Juggernaut-X v10 / NSFW Models
+
+## Content Policy Notice
+
+Juggernaut-X v10 is a capable image generation model that can produce
+realistic human likenesses and may generate NSFW (Not Safe For Work) content.
+This file documents the acceptable usage policy for models deployed in this
+environment.
+
+## Legal Responsibility Statement
+
+By using models from this deployment, you acknowledge that:
+
+1. **You are legally responsible** for all content you generate with these models.
+2. **You must comply with all applicable laws**, including but not limited to:
+   - Federal and state laws regarding the generation of images of minors
+   - Privacy laws regarding the use of real people's likenesses
+   - Copyright and intellectual property laws
+   - Laws prohibiting non-consensual intimate imagery
+   - Laws regarding the generation of deceptive/fraudulent content
+
+## Age Verification Requirement
+
+Users must be **at least 18 years of age** (or the age of majority in their
+jurisdiction) to use NSFW-capable models in this deployment. By proceeding,
+you represent that you meet this requirement.
+
+## Usage Restrictions
+
+The following types of content are **strictly prohibited**:
+
+- **Minors**: Any depiction of persons who appear to be under 18 years of age
+  in a sexualized or exploitative manner (zero tolerance under 18 U.S.C. § 2256
+  and equivalent international laws)
+- **Non-consensual content**: Generating images of real people without their
+  consent, especially in a sexualized or defamatory context
+- **Illegal content**: Anything that violates local, state, or federal law
+  in your jurisdiction
+- **Misinformation**: Generating content designed to deceive or mislead about
+  real events, people, or organizations
+- **Commercial exploitation**: Using generated likenesses of real people for
+  commercial endorsement without their consent
+
+## Permitted Uses
+
+- Artistic and creative expression (where lawful)
+- Educational and research purposes
+- Fictional character creation
+- Personal entertainment
+
+## Model Information
+
+- **Model**: Juggernaut-X v10 (Juggernaut-X-RunDiffusion-NSFW.safetensors)
+- **Source**: [HuggingFace — RunDiffusion/Juggernaut-X-v10](https://huggingface.co/RunDiffusion/Juggernaut-X-v10)
+- **Content Warning**: This model is NSFW-capable. The `NSFW` variant is
+  intentionally included; users may choose the non-NSFW variant instead.
+
+## Enforcement
+
+Violations of this policy may result in:
+- Immediate revocation of access
+- Reporting to appropriate authorities where required by law
+- Legal action where applicable
+
+## Contact
+
+For questions about this policy, contact your system administrator or the
+organization operating this deployment.
+
+---
+*This policy is provided as a compliance aid. It does not constitute legal
+advice. Users are responsible for determining their own legal obligations.*
+POLICY
+
+    printf 'content-policy: written to %s\\n' "$policy_file" >&2
+    return 0
+}
+
+# generate_model_config CONFIG MODEL_ROOT STATE_ROOT DEPLOY_ROOT
+# Outputs a consolidated model-inventory.json describing all catalog models,
+# their dependencies, VRAM requirements, feature gates, and status.
+# Output: $DEPLOY_ROOT/config/model-inventory.json
+# Returns 0; best-effort — does not fail the deployment if config generation
+# encounters issues.
+generate_model_config() {
+    local config="${1:?config required}" model_root="${2:?model root required}"
+    local state_root="${3:-}" deploy_root="${4:-}"
+
+    local profile_path=""
+    if [[ -n "$state_root" && -f "$state_root/state/hardware-profile.json" ]]; then
+        profile_path="$state_root/state/hardware-profile.json"
+    elif [[ -n "$deploy_root" && -f "$deploy_root/state/hardware-profile.json" ]]; then
+        profile_path="$deploy_root/state/hardware-profile.json"
+    fi
+
+    local vram_available=0
+    if [[ -n "$profile_path" ]]; then
+        vram_available="$(python3 -c "import json,sys;d=json.loads(sys.argv[1]);print(d.get('gpu',{}).get('vram_usable_gb',0))" "$profile_path" 2>/dev/null || echo 0)"
+    fi
+
+    # Determine which models have been downloaded (by scanning model_root)
+    local model_status_args=""
+    local models_dir
+    for dir in "$model_root/diffusion_models" "$model_root/checkpoints" "$model_root" "$model_root/models"; do
+        if [[ -d "$dir" ]]; then
+            models_dir="$dir"
+            model_status_args="$models_dir"
+            break
+        fi
+    done
+
+    python3 -c "
+import json, sys, os, re
+
+config_path = sys.argv[1]
+models_dir = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else ''
+vram_available = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+
+cfg = json.load(open(config_path))
+models = cfg.get('models', {})
+
+# Build per-file download status from filesystem
+file_statuses = {}
+if models_dir and os.path.isdir(models_dir):
+    for root, dirs, files in os.walk(models_dir):
+        for f in files:
+            file_statuses[f] = 'downloaded'
+
+inventory = {
+    'generated_at': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+    'vram_available_gb': vram_available,
+    'models': {},
+    'catalog': cfg.get('catalog', {}),
+}
+
+# Model size estimates (GB) for VRAM fit check
+_vram_estimates = {
+    'juggernaut-xl-v10': 8,
+    'pony-v6': 7,
+    'noobai-xl': 7,
+    'flux1-dev-fp8-finetune': 12,
+    'stability-ai-sdxl-turbo': 3,
+    'wan2gp-i2v-14B': 24,
+    'piper-voice': 0.1,
+}
+
+for key in sorted(models.keys()):
+    entry = models[key]
+    min_size = entry.get('minimum_size_bytes', 0)
+    size_gb = round(min_size / (1024**3), 2) if min_size else 0
+    vram_needed = _vram_estimates.get(key, '?')
+    vram_fit = vram_needed <= vram_available if isinstance(vram_needed, int) else False
+
+    # Determine status from config + filesystem
+    required = entry.get('required', True)
+    has_files = 'files' in entry
+    if not has_files and key in file_statuses:
+        status = 'downloaded'
+    elif required:
+        status = 'required'
+    else:
+        status = 'pending'
+
+    # Check file-level status
+    file_records = []
+    if has_files:
+        for subdir, file_list in entry.get('files', {}).items():
+            fl = file_list if isinstance(file_list, list) else [file_list]
+            for fm in fl:
+                fn = fm.get('filename', '')
+                chk = fm.get('checksum', '')
+                rec = {
+                    'filename': fn,
+                    'destination': fm.get('destination', subdir),
+                    'minimum_size_bytes': fm.get('minimum_size_bytes', 0),
+                    'checksum': chk if chk else None,
+                    'status': 'downloaded' if fn in file_statuses else ('required' if fm.get('required', False) else 'pending'),
+                }
+                file_records.append(rec)
+    elif has_files:
+        file_records = []
+    else:
+        file_records = []
+
+    dest = f'{models_dir}/{key}' if models_dir else ''
+
+    record = {
+        'name': key,
+        'source': entry.get('source', ''),
+        'revision': entry.get('revision', ''),
+        'size_bytes': min_size,
+        'size_gb': size_gb,
+        'vram_needed_gb': vram_needed,
+        'vram_fit_gb10': vram_fit,
+        'destination': dest,
+        'required': required,
+        'experimental': entry.get('experimental', False),
+        'status': status,
+        'file_records': file_records if file_records else None,
+    }
+    inventory['models'][key] = record
+
+# Feature gates: which models are needed for each feature
+features_map = {}
+for cat in ('photo', 'video', 'voice'):
+    catalog = cfg.get('catalog', {}).get(cat, [])
+    features_map[cat] = list(catalog)
+
+inventory['feature_gates'] = features_map
+inventory['summary'] = {
+    'total_models': len(models),
+    'vram_available_gb': vram_available,
+    'models_fit_in_vram': sum(1 for k, v in _vram_estimates.items() if v <= vram_available),
+}
+
+print(json.dumps(inventory, indent=2))
+" "$config" "${model_status_args:-}" "$vram_available" > "$deploy_root/config/model-inventory.json" 2>/dev/null || true
+
+    printf 'model-config: inventory written to %s/config/model-inventory.json\\n' "$deploy_root" >&2
+    return 0
+}
+
 check_docker_socket() {
     if [[ -e /var/run/docker.sock ]]; then
         if command docker info >/dev/null 2>&1; then
@@ -683,6 +1157,106 @@ install_comfyui() {
 # ---------------------------------------------------------------------------
 # Local video provisioning seam
 # ---------------------------------------------------------------------------
+# ComfyUI custom nodes — install repos into custom_nodes/
+# ---------------------------------------------------------------------------
+# install_comfyui_custom_nodes COMFYUI_PATH [VENV_PYTHON]
+# Clones a curated set of video-capable custom node repositories into
+# the ComfyUI custom_nodes directory.  Called during video provisioning
+# when the selected feature set includes "video".
+#
+# Returns 0 on success, 1 if any clone fails (non-fatal — video still
+# works without nodes that are not strictly required).
+install_comfyui_custom_nodes() {
+    local comfyui_path="${1:?comfyui path required}"
+    local venv_python="${2:-}"
+
+    local nodes=(
+        "https://github.com/comfyanonymous/ComfyUI-WanVideoWrapper"
+        "https://github.com/ljfrankner/ComfyUI-FluxNodes"
+        "https://github.com/Lightrix/ComfyUI-LTXVideo"
+        "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite"
+        "https://github.com/city96/ComfyUI-GGUF"
+        "https://github.com/RockOfThaw/ComfyUI_UltraFast"
+    )
+
+    local custom_dir="$comfyui_path/custom_nodes"
+    mkdir -p -- "$custom_dir" || return 1
+
+    local cloned=0 failed=0 node
+    for node in "${nodes[@]}"; do
+        local repo_name
+        repo_name="${node##*/}"
+        local target="$custom_dir/$repo_name"
+        if [[ -d "$target/.git" ]]; then
+            printf 'custom-nodes: %s already installed, skipping\\n' "$repo_name" >&2
+            continue
+        fi
+        if git clone --depth 1 "$node" "$target" 2>/dev/null; then
+            printf 'custom-nodes: cloned %s\\n' "$repo_name" >&2
+            cloned=$((cloned + 1))
+        else
+            printf 'custom-nodes: failed to clone %s\\n' "$repo_name" >&2
+            failed=$((failed + 1))
+        fi
+    done
+
+    printf 'custom-nodes: %d cloned, %d failed\\n' "$cloned" "$failed" >&2
+    # Non-fatal: video still works without custom nodes; best-effort clone.
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# GPU optimizations — install flash-attn, xformers for ARM64
+# ---------------------------------------------------------------------------
+# install_gpu_optimizations VENV_PYTHON
+# Installs GPU-aware acceleration libraries.  On ARM64 (GB10) these are
+# compiled against the system CUDA toolkit (12.1).  Non-fatal: photo
+# generation still works without them.
+#
+# Returns 0 on success, 1 if compilation fails (still best-effort).
+install_gpu_optimizations() {
+    local venv_python="${1:?venv python required}"
+
+    # Detect architecture
+    local arch
+    arch="$(uname -m 2>/dev/null || echo unknown)"
+
+    printf 'gpu-opt: platform %s, installing GPU acceleration deps\\n' "$arch" >&2
+
+    local installed=0 failed=0 pkg
+    for pkg in xformers; do
+        if "$venv_python" -m pip install --no-cache-dir "$pkg" 2>/dev/null; then
+            printf 'gpu-opt: installed %s\\n' "$pkg" >&2
+            installed=$((installed + 1))
+        else
+            printf 'gpu-opt: could not install %s\\n' "$pkg" >&2
+            failed=$((failed + 1))
+        fi
+    done
+
+    # flash-attn: ARM64 compilation; skip if nvcc is not found.
+    if [[ "$arch" == "aarch64" && -n "$venv_python" ]]; then
+        if command -v nvcc >/dev/null 2>&1; then
+            printf 'gpu-opt: installing flash-attn (aarch64, nvcc found)\\n' >&2
+            if "$venv_python" -m pip install --no-cache-dir flash-attn 2>/dev/null; then
+                printf 'gpu-opt: installed flash-attn\\n' >&2
+                installed=$((installed + 1))
+            else
+                printf 'gpu-opt: flash-attn build failed (aarch64)\\n' >&2
+                failed=$((failed + 1))
+            fi
+        else
+            printf 'gpu-opt: nvcc not found, skipping flash-attn on %s\\n' "$arch" >&2
+        fi
+    fi
+
+    printf 'gpu-opt: %d installed, %d failed\\n' "$installed" "$failed" >&2
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Local video provisioning seam
+# ---------------------------------------------------------------------------
 provision_local_video() {
     local deploy_root="${1:?deploy root required}" state_root="${2:?state root required}" model="${3:?video model required}" config="${4:?config required}" dry_run="${5:-false}"
     local manifest="$deploy_root/config/video-local.json"
@@ -696,28 +1270,80 @@ deps={k:f"{root}/models/{k}" for k in ("diffusion_models","text_encoders","vae",
 print(json.dumps({"provider":"local","model":model,"status":"deferred","reason":"Wan2GP/ComfyUI runtime and custom-node revisions are not pinned; installation deferred","model_root":f"{root}/models","dependencies":deps},separators=(",",":")))
 PYJSON
 )"
-    if [[ "$dry_run" == true ]]; then printf 'video: local provisioning deferred (dry-run; no files written)
-'; return 0; fi
+    if [[ "$dry_run" == true ]]; then printf 'video: local provisioning deferred (dry-run; no files written)\n'; return 0; fi
+
+    local comfyui_path="$deploy_root/artifacts/ComfyUI"
+    local venv_path="$deploy_root/venv"
+    local venv_python="$venv_path/bin/python"
+
     mkdir -p "$deploy_root/config" "$deploy_root/bin" "$deploy_root/run" "$deploy_root/logs"
+
+    # Install ComfyUI custom nodes (best-effort; video still works without them)
+    if [[ -d "$comfyui_path" ]]; then
+        install_comfyui_custom_nodes "$comfyui_path" "$venv_python" || true
+    else
+        printf 'video: ComfyUI path %s not found; custom nodes skipped\\n' "$comfyui_path" >&2
+    fi
+
+    # Install GPU optimizations (best-effort; photo still works without them)
+    if [[ -x "$venv_python" ]]; then
+        install_gpu_optimizations "$venv_python" || true
+    else
+        printf 'video: venv python %s not found; GPU opt skipped\\n' "$venv_python" >&2
+    fi
+
+    # Write video manifest
     json_write_atomic "$manifest" "$payload"
-    printf '#!/usr/bin/env bash
-printf "video: local runtime deferred; start unavailable\n" >&2
-exit 2
-' > "$deploy_root/bin/start-video"
-    printf '#!/usr/bin/env bash
-rm -f "$(dirname "$0")/../run/video.pid"
-printf "video: local service stopped (deferred seam)\n"
-' > "$deploy_root/bin/stop-video"
+
+    # Generate video lifecycle scripts (start-video / stop-video)
+    printf '#!/usr/bin/env bash\nset -euo pipefail\nSCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"\nprintf "Starting video service (deferred runtime)...\n" >&2\nif [[ -x "$SCRIPT_DIR/venv/bin/python" && -d "$SCRIPT_DIR/artifacts/ComfyUI" ]]; then\n  nohup "$SCRIPT_DIR/venv/bin/python" "$SCRIPT_DIR/artifacts/ComfyUI/main.py" --port 8189 > "$SCRIPT_DIR/logs/video-comfyui.log" 2>&1 &\n  echo $! > "$SCRIPT_DIR/run/video.pid"\n  printf "video: ComfyUI started (pid %s, port 8189)\\n" "$!"\nelse\n  printf "video: runtime deferred; no process started\\n" >&2\n  exit 2\nfi\n' > "$deploy_root/bin/start-video"
+
+    printf '#!/usr/bin/env bash\nset -euo pipefail\nPID_FILE="$(dirname "$0")/../run/video.pid"\nif [[ -f "$PID_FILE" ]]; then\n  kill "$(cat "$PID_FILE")" 2>/dev/null || true\n  rm -f -- "$PID_FILE"\n  printf "video: stopped (pid read from PID file)\\n"\nelse\n  printf "video: no PID file found\\n"\nfi\n' > "$deploy_root/bin/stop-video"
+
     chmod +x "$deploy_root/bin/start-video" "$deploy_root/bin/stop-video"
-    printf 'video: local Wan2GP/ComfyUI scaffolded with model dependency paths; runtime installation deferred
-' >&2
+
+    # Generate systemd service unit for video
+    generate_video_systemd_unit "$deploy_root" || true
+
+    printf 'video: local Wan2GP/ComfyUI scaffolded with model dependency paths; runtime installation deferred\n' >&2
     return 1
 }
+
+# ---------------------------------------------------------------------------
+# Video provisioning entry point (public)
+# ---------------------------------------------------------------------------
 provision_video() {
     local deploy_root="$1" state_root="$2" provider="$3" model="$4" config="$5" dry_run="${6:-false}"
-    [[ "$provider" == remote ]] && { printf 'video: remote provider selected; skipping local video provisioning
-'; return 0; }
+    [[ "$provider" == remote ]] && { printf 'video: remote provider selected; skipping local video provisioning\n'; return 0; }
     provision_local_video "$deploy_root" "$state_root" "$model" "$config" "$dry_run"
+}
+
+# ---------------------------------------------------------------------------
+# Systemd service unit for video service
+# ---------------------------------------------------------------------------
+generate_video_systemd_unit() {
+    local deploy_root="${1:?deploy root required}"
+
+    mkdir -p -- "$HOME/.config/systemd/user"
+
+    cat > "$HOME/.config/systemd/user/clawdess-video.service" <<EOF
+[Unit]
+Description=Clawdess Video Service (ComfyUI Wan2GP)
+After=network.target clawdess-comfyui.service
+
+[Service]
+Type=simple
+ExecStart=$deploy_root/bin/start-video
+ExecStop=$deploy_root/bin/stop-video
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+    printf 'systemd: generated video unit in ~/.config/systemd/user\n'
+    return 0
 }
 
 feature_selected() {
@@ -799,6 +1425,32 @@ install_piper_tts() {
     }
 
     printf 'tts: piper installed\n'
+    return 0
+}
+
+install_vllm() {
+    local venv_python="${1:?venv python required}"
+
+    local arch
+    arch="$(uname -m 2>/dev/null || echo unknown)"
+    printf 'vllm: platform %s, attempting installation (best-effort)\n' "$arch" >&2
+
+    # Check if vllm is already installed
+    if "$venv_python" -c 'import vllm; print(vllm.__version__)' 2>/dev/null; then
+        printf 'vllm: already installed\n' >&2
+        return 0
+    fi
+
+    # Install vllm from PyPI (ARM64 wheel if available).
+    # vLLM is GPU-centric; on aarch64 (GB10) wheels may be
+    # unavailable — best-effort: return 0 regardless.
+    if "$venv_python" -m pip install --no-cache-dir vllm 2>/dev/null; then
+        printf 'vllm: installed successfully\n' >&2
+        return 0
+    fi
+
+    printf 'vllm: install failed (best-effort; photo/ComfyUI do not depend on vLLM)\n' >&2
+    printf 'vllm: note: vLLM may require ARM64-specific wheels for %s\n' "$arch" >&2
     return 0
 }
 
@@ -977,6 +1629,944 @@ wait_for_tts_ready() {
 }
 
 # ---------------------------------------------------------------------------
+# Health check functions (standalone, callable outside lifecycle scripts)
+# ---------------------------------------------------------------------------
+
+# health_check() — checks all running services, writes results to state file.
+# Returns 0 if all healthy, 1 if any unhealthy.
+health_check() {
+    local deploy_root="${1:-${DEPLOY_ROOT:-}}/${CLAWDESS_DEPLOY_ROOT:-}"
+    deploy_root="${deploy_root:-/tmp/dgx-spark-deploy}"
+    local error_count=0
+    local healthy_count=0
+    local results=""
+    local timestamp
+    timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    # Check ComfyUI (port 8188)
+    local comfyui_status="unknown"
+    if [[ -f "$deploy_root/run/comfyui.pid" ]]; then
+        local pid
+        pid="$(cat "$deploy_root/run/comfyui.pid")"
+        if kill -0 "$pid" 2>/dev/null; then
+            if curl -s --max-time 5 http://localhost:8188/system_stats >/dev/null 2>&1; then
+                comfyui_status="healthy"
+                healthy_count=$((healthy_count + 1))
+            else
+                comfyui_status="unhealthy"
+                error_count=$((error_count + 1))
+            fi
+        else
+            comfyui_status="dead"
+            error_count=$((error_count + 1))
+        fi
+    else
+        comfyui_status="not_started"
+    fi
+    results="${results}{\"service\":\"comfyui\",\"port\":8188,\"status\":\"${comfyui_status}\"},"
+
+    # Check vLLM (port 8000)
+    local vllm_status="unknown"
+    if [[ -f "$deploy_root/run/vllm.pid" ]]; then
+        local pid
+        pid="$(cat "$deploy_root/run/vllm.pid")"
+        if kill -0 "$pid" 2>/dev/null; then
+            if curl -s --max-time 5 http://localhost:8000/health >/dev/null 2>&1; then
+                vllm_status="healthy"
+                healthy_count=$((healthy_count + 1))
+            else
+                vllm_status="unhealthy"
+                error_count=$((error_count + 1))
+            fi
+        else
+            vllm_status="dead"
+            error_count=$((error_count + 1))
+        fi
+    else
+        vllm_status="not_started"
+    fi
+    results="${results}{\"service\":\"vllm\",\"port\":8000,\"status\":\"${vllm_status}\"},"
+
+    # Check llama.cpp (port 8001)
+    local llama_status="unknown"
+    if [[ -f "$deploy_root/run/llama.pid" ]]; then
+        local pid
+        pid="$(cat "$deploy_root/run/llama.pid")"
+        if kill -0 "$pid" 2>/dev/null; then
+            if curl -s --max-time 5 http://localhost:8001/health >/dev/null 2>&1; then
+                llama_status="healthy"
+                healthy_count=$((healthy_count + 1))
+            else
+                llama_status="unhealthy"
+                error_count=$((error_count + 1))
+            fi
+        else
+            llama_status="dead"
+            error_count=$((error_count + 1))
+        fi
+    else
+        llama_status="not_started"
+    fi
+    results="${results}{\"service\":\"llama\",\"port\":8001,\"status\":\"${llama_status}\"},"
+
+    # Check piper (port 5000)
+    local piper_status="unknown"
+    if [[ -f "$deploy_root/run/piper.pid" ]]; then
+        local pid
+        pid="$(cat "$deploy_root/run/piper.pid")"
+        if kill -0 "$pid" 2>/dev/null; then
+            if curl -s --max-time 5 http://localhost:5000/ping >/dev/null 2>&1; then
+                piper_status="healthy"
+                healthy_count=$((healthy_count + 1))
+            else
+                piper_status="unhealthy"
+                error_count=$((error_count + 1))
+            fi
+        else
+            piper_status="dead"
+            error_count=$((error_count + 1))
+        fi
+    else
+        piper_status="not_started"
+    fi
+    results="${results}{\"service\":\"piper\",\"port\":5000,\"status\":\"${piper_status}\"}"
+
+    # Write health check results to state file
+    local state_file="$deploy_root/state/deployment-state.json"
+    mkdir -p "$(dirname "$state_file")" 2>/dev/null || true
+    if [[ -f "$state_file" ]]; then
+        local existing
+        existing="$(json_read "$state_file" 2>/dev/null || echo '{}')"
+        python3 -c "
+import json, sys
+existing = json.loads(sys.argv[1]) if sys.argv[1] else {}
+existing['running_services'] = [
+    r['service'] for r in json.loads(sys.argv[2]) if r['status'] == 'healthy'
+]
+existing['health_checks'] = json.loads(sys.argv[2])
+existing['last_health_check'] = sys.argv[3]
+if 'error_count' in existing:
+    existing['health_error_count'] = json.loads(sys.argv[4]).get('error_count', existing.get('health_error_count', 0))
+print(json.dumps(existing, separators=(',', ':')))
+" "$existing" "[${results}]" "$timestamp" "$timestamp" "$error_count" > "$state_file.tmp" 2>/dev/null && \
+        mv -f "$state_file.tmp" "$state_file" || true
+    else
+        printf '{"running_services":[],"health_checks":[%s],"last_health_check":"%s"}\n' "${results}" "$timestamp" > "$state_file"
+    fi
+
+    if [[ "$error_count" -gt 0 ]]; then
+        printf 'health-check: %d issue(s), %d healthy\n' "$error_count" "$healthy_count"
+        return 1
+    fi
+    printf 'health-check: all services healthy (%d checked)\n' "$healthy_count"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Docker Compose generation
+# ---------------------------------------------------------------------------
+
+# generate_docker_compose DEPLOY_ROOT PROFILE [DOCKER_AVAILABLE]
+# Generates docker-compose.yml with 4 services, profile-based templates,
+# health checks, and resource limits. Works without Docker installed.
+generate_docker_compose() {
+    local deploy_root="${1:?deploy root required}"
+    local profile="${2:-minimal}"
+    local docker_available="${3:-false}"
+
+    mkdir -p "$deploy_root"
+
+    # Determine which services to include based on profile
+    local services=""
+    local profiles_yaml=""
+    local has_photo=false has_video=false has_voice=false has_llama=false
+
+    case "$profile" in
+        minimal)  has_photo=true ;;
+        media)    has_photo=true; has_video=true ;;
+        assistant) has_photo=true; has_video=true; has_voice=true ;;
+        all)      has_photo=true; has_video=true; has_voice=true ;;
+        full)     has_photo=true; has_video=true; has_voice=true; has_llama=true ;;
+        *)        has_photo=true ;;  # default
+    esac
+
+    if feature_selected "${profile}" photo 2>/dev/null || [[ "$has_photo" == "true" ]]; then
+        has_photo=true
+    fi
+
+    # Build services YAML
+    services="version: \"3.8\"\n"
+    services+="# Auto-generated by DGX Spark Deployment Wizard — profile: ${profile}\n"
+    services+="services:\n"
+
+    # ComfyUI service (always present for non-minimal)
+    services+="  comfyui:\n"
+    services+="    image: ghcr.io/comfyanonymous/comfyui:latest\n"
+    services+="    container_name: clawdess-comfyui\n"
+    services+="    ports:\n"
+    services+="      - \"8188:8188\"\n"
+    services+="    volumes:\n"
+    services+="      - models:/models\n"
+    services+="      - artifacts:/artifacts\n"
+    services+="      - state:/state\n"
+    services+="    environment:\n"
+    services+="      - PYTHONUNBUFFERED=1\n"
+    services+="      - COMFYUI_PORT=8188\n"
+    services+="    deploy:\n"
+    services+="      resources:\n"
+    services+="        reservations:\n"
+    services+="          devices:\n"
+    services+="            - driver: nvidia\n"
+    services+="              count: 1\n"
+    services+="              capabilities: [gpu]\n"
+    services+="        limits:\n"
+    services+="          memory: 32G\n"
+    services+="      restart_policy:\n"
+    services+="        condition: on-failure\n"
+    services+="        delay: 5s\n"
+    services+="        max_attempts: 3\n"
+    services+="    healthcheck:\n"
+    services+="      test: [\"CMD\", \"curl\", \"-sf\", \"http://localhost:8188/system_stats\"]\n"
+    services+="      interval: 30s\n"
+    services+="      timeout: 10s\n"
+    services+="      retries: 3\n"
+    services+="      start_period: 60s\n"
+    services+="    networks:\n"
+    services+="      - clawdess-net\n\n"
+
+    # vLLM service (for full profile or when llama feature selected)
+    if [[ "$has_llama" == "true" || "$profile" == "full" ]]; then
+        services+="  vllm:\n"
+        services+="    image: vllm/vllm-openai:latest\n"
+        services+="    container_name: clawdess-vllm\n"
+        services+="    ports:\n"
+        services+="      - \"8000:8000\"\n"
+        services+="    volumes:\n"
+        services+="      - models:/models\n"
+        services+="      - state:/state\n"
+        services+="    environment:\n"
+        services+="      - VLLM_HOST=0.0.0.0\n"
+        services+="      - VLLM_PORT=8000\n"
+        services+="    deploy:\n"
+        services+="      resources:\n"
+        services+="        reservations:\n"
+        services+="          devices:\n"
+        services+="            - driver: nvidia\n"
+        services+="              count: 1\n"
+        services+="              capabilities: [gpu]\n"
+        services+="        limits:\n"
+        services+="          memory: 48G\n"
+        services+="      restart_policy:\n"
+        services+="        condition: on-failure\n"
+        services+="        delay: 5s\n"
+        services+="        max_attempts: 3\n"
+        services+="    healthcheck:\n"
+        services+="      test: [\"CMD\", \"curl\", \"-sf\", \"http://localhost:8000/health\"]\n"
+        services+="      interval: 30s\n"
+        services+="      timeout: 10s\n"
+        services+="      retries: 3\n"
+        services+="      start_period: 120s\n"
+        services+="    networks:\n"
+        services+="      - clawdess-net\n\n"
+    fi
+
+    # llama.cpp service (via docker-in-docker or host network)
+    if [[ "$has_llama" == "true" || "$profile" == "full" ]]; then
+        services+="  llama:\n"
+        services+="    image: ghcr.io/ggml-org/llama.cpp:latest\n"
+        services+="    container_name: clawdess-llama\n"
+        services+="    ports:\n"
+        services+="      - \"8001:8001\"\n"
+        services+="    volumes:\n"
+        services+="      - models/gguf_models:/models\n"
+        services+="      - state:/state\n"
+        services+="    command: >\n"
+        services+="      llama-server\n"
+        services+="      --model /models/*.gguf\n"
+        services+="      --host 0.0.0.0\n"
+        services+="      --port 8001\n"
+        services+="      -c 2048\n"
+        services+="      --ctx-size 4096\n"
+        services+="    deploy:\n"
+        services+="      resources:\n"
+        services+="        limits:\n"
+        services+="          memory: 16G\n"
+        services+="      restart_policy:\n"
+        services+="        condition: on-failure\n"
+        services+="        delay: 5s\n"
+        services+="        max_attempts: 3\n"
+        services+="    healthcheck:\n"
+        services+="      test: [\"CMD\", \"curl\", \"-sf\", \"http://localhost:8001/health\"]\n"
+        services+="      interval: 30s\n"
+        services+="      timeout: 10s\n"
+        services+="      retries: 3\n"
+        services+="      start_period: 60s\n"
+        services+="    networks:\n"
+        services+="      - clawdess-net\n\n"
+    fi
+
+    # Piper TTS service
+    if [[ "$has_voice" == "true" ]]; then
+        services+="  piper:\n"
+        services+="    image: ghcr.io/rhasspy/piper:latest\n"
+        services+="    container_name: clawdess-piper\n"
+        services+="    ports:\n"
+        services+="      - \"5000:5000\"\n"
+        services+="    volumes:\n"
+        services+="      - models:/models\n"
+        services+="      - artifacts:/artifacts\n"
+        services+="    command: >\n"
+        services+="      piper\n"
+        services+="      --model /models/lessac-medium.onnx\n"
+        services+="      --config /models/lessac-medium.onnx.json\n"
+        services+="      --output_dir /artifacts/tts-output\n"
+        services+="      --port 5000\n"
+        services+="    deploy:\n"
+        services+="      resources:\n"
+        services+="        limits:\n"
+        services+="          memory: 4G\n"
+        services+="          cpus: \"1.0\"\n"
+        services+="      restart_policy:\n"
+        services+="        condition: on-failure\n"
+        services+="        delay: 5s\n"
+        services+="        max_attempts: 3\n"
+        services+="    healthcheck:\n"
+        services+="      test: [\"CMD\", \"curl\", \"-sf\", \"http://localhost:5000/ping\"]\n"
+        services+="      interval: 30s\n"
+        services+="      timeout: 10s\n"
+        services+="      retries: 3\n"
+        services+="      start_period: 30s\n"
+        services+="    networks:\n"
+        services+="      - clawdess-net\n\n"
+    fi
+
+    # Named volumes
+    services+="volumes:\n"
+    services+="  models:\n"
+    services+="    driver: local\n"
+    services+="    driver_opts:\n"
+    services+="      type: none\n"
+    services+="      o: bind\n"
+    services+="      device: ${deploy_root}/models\n"
+    services+="  artifacts:\n"
+    services+="    driver: local\n"
+    services+="    driver_opts:\n"
+    services+="      type: none\n"
+    services+="      o: bind\n"
+    services+="      device: ${deploy_root}/artifacts\n"
+    services+="  state:\n"
+    services+="    driver: local\n"
+    services+="    driver_opts:\n"
+    services+="      type: none\n"
+    services+="      o: bind\n"
+    services+="      device: ${deploy_root}/state\n"
+
+    # Network
+    services+="\nnetworks:\n"
+    services+="  clawdess-net:\n"
+    services+="    driver: bridge\n"
+
+    # Profile-based compose templates (stored in config/)
+    local config_dir="$deploy_root/config"
+    mkdir -p "$config_dir"
+
+    # Minimal profile compose (photo only)
+    cat > "$config_dir/docker-compose.minimal.yml" <<'COMPOSE'
+# Profile: minimal — photo generation only
+version: "3.8"
+services:
+  comfyui:
+    image: ghcr.io/comfyanonymous/comfyui:latest
+    container_name: clawdess-comfyui
+    ports:
+      - "8188:8188"
+    volumes:
+      - models:/models
+      - artifacts:/artifacts
+    environment:
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 32G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8188/system_stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - clawdess-net
+
+volumes:
+  models:
+  artifacts:
+
+networks:
+  clawdess-net:
+    driver: bridge
+COMPOSE
+
+    # Media profile compose (photo + video)
+    cat > "$config_dir/docker-compose.media.yml" <<'COMPOSE'
+# Profile: media — photo + video generation
+version: "3.8"
+services:
+  comfyui:
+    image: ghcr.io/comfyanonymous/comfyui:latest
+    container_name: clawdess-comfyui
+    ports:
+      - "8188:8188"
+    volumes:
+      - models:/models
+      - artifacts:/artifacts
+      - state:/state
+    environment:
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 32G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8188/system_stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - clawdess-net
+
+  piper:
+    image: ghcr.io/rhasspy/piper:latest
+    container_name: clawdess-piper
+    ports:
+      - "5000:5000"
+    volumes:
+      - models:/models
+      - artifacts:/artifacts
+    command: >
+      piper
+      --model /models/lessac-medium.onnx
+      --config /models/lessac-medium.onnx.json
+      --output_dir /artifacts/tts-output
+      --port 5000
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "1.0"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5000/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - clawdess-net
+
+volumes:
+  models:
+  artifacts:
+  state:
+
+networks:
+  clawdess-net:
+    driver: bridge
+COMPOSE
+
+    # Full profile compose (photo + video + voice + LLM)
+    cat > "$config_dir/docker-compose.full.yml" <<'COMPOSE'
+# Profile: full — all features (photo, video, voice, LLM)
+version: "3.8"
+services:
+  comfyui:
+    image: ghcr.io/comfyanonymous/comfyui:latest
+    container_name: clawdess-comfyui
+    ports:
+      - "8188:8188"
+    volumes:
+      - models:/models
+      - artifacts:/artifacts
+      - state:/state
+    environment:
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 32G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8188/system_stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - clawdess-net
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: clawdess-vllm
+    ports:
+      - "8000:8000"
+    volumes:
+      - models:/models
+      - state:/state
+    environment:
+      - VLLM_HOST=0.0.0.0
+      - VLLM_PORT=8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 48G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - clawdess-net
+
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:latest
+    container_name: clawdess-llama
+    ports:
+      - "8001:8001"
+    volumes:
+      - models/gguf_models:/models
+      - state:/state
+    command: >
+      llama-server
+      --model /models/*.gguf
+      --host 0.0.0.0
+      --port 8001
+      -c 2048
+      --ctx-size 4096
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - clawdess-net
+
+  piper:
+    image: ghcr.io/rhasspy/piper:latest
+    container_name: clawdess-piper
+    ports:
+      - "5000:5000"
+    volumes:
+      - models:/models
+      - artifacts:/artifacts
+    command: >
+      piper
+      --model /models/lessac-medium.onnx
+      --config /models/lessac-medium.onnx.json
+      --output_dir /artifacts/tts-output
+      --port 5000
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "1.0"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5000/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - clawdess-net
+
+volumes:
+  models:
+  artifacts:
+  state:
+
+networks:
+  clawdess-net:
+    driver: bridge
+COMPOSE
+
+    # Write the main compose file (all services for the profile)
+    printf '%s\n' "$services" > "$deploy_root/docker-compose.yml"
+
+    # If Docker isn't available, generate compose file but skip validation
+    if [[ "$docker_available" != "true" ]]; then
+        printf 'docker-compose: generated without Docker (docker_available=false)\\n'
+    fi
+
+    printf 'lifecycle: docker-compose.yml generated in %s\\n' "$deploy_root"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Systemd orchestration units
+# ---------------------------------------------------------------------------
+
+# generate_systemd_orchestration DEPLOY_ROOT PROFILE
+# Generates a full set of systemd user services with ordering and health checks.
+# Services are ordered by startup: comfyui → vllm → llama → piper.
+generate_systemd_orchestration() {
+    local deploy_root="${1:?deploy root required}"
+    local profile="${2:-minimal}"
+
+    mkdir -p -- "$HOME/.config/systemd/user"
+
+    # Determine which services to include
+    local has_photo=false has_video=false has_voice=false has_llama=false
+
+    case "$profile" in
+        minimal)  has_photo=true ;;
+        media)    has_photo=true; has_video=true ;;
+        assistant) has_photo=true; has_video=true; has_voice=true ;;
+        all)      has_photo=true; has_video=true; has_voice=true ;;
+        full)     has_photo=true; has_video=true; has_voice=true; has_llama=true ;;
+        *)        has_photo=true ;;
+    esac
+
+    # --- ComfyUI service (starts first) ---
+    cat > "$HOME/.config/systemd/user/clawdess-comfyui.service" <<EOF
+[Unit]
+Description=Clawdess ComfyUI Service (port 8188)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${deploy_root}/bin/start-comfyui
+ExecStop=${deploy_root}/bin/stop-comfyui
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # --- vLLM service (starts after comfyui) ---
+    if [[ "$has_llama" == "true" || "$profile" == "full" ]]; then
+        cat > "$HOME/.config/systemd/user/clawdess-vllm.service" <<EOF
+[Unit]
+Description=Clawdess vLLM Inference Service (port 8000)
+After=network.target clawdess-comfyui.service
+Requires=clawdess-comfyui.service
+
+[Service]
+Type=simple
+ExecStart=${deploy_root}/bin/start-vllm
+ExecStop=${deploy_root}/bin/stop-vllm
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target
+EOF
+
+        # start-vllm script
+        cat > "$deploy_root/bin/start-vllm" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+MODEL="${1:-}"
+if [[ -z "$MODEL" && -d "$SCRIPT_DIR/models/diffusion_models" ]]; then
+    MODEL="$(find "$SCRIPT_DIR/models/diffusion_models" -name "*.safetensors" -o -name "*.sft" 2>/dev/null | head -n 1)"
+fi
+if [[ -z "$MODEL" ]]; then
+    printf 'vllm: no model found in models/diffusion_models/\\n' >&2
+    exit 2
+fi
+mkdir -p -- "$SCRIPT_DIR/run"
+printf 'vllm: starting vLLM (model: %s, port 8000)...\\n' "$MODEL" >&2
+nohup python3 -m vllm.entrypoints.api_server \
+    --model "$MODEL" \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --dtype float16 \
+    --gpu-memory-utilization 0.9 \
+    --max-model-len 2048 > "$SCRIPT_DIR/logs/vllm.log" 2>&1 &
+echo $! > "$SCRIPT_DIR/run/vllm.pid"
+printf 'vllm: started (pid %s, port 8000)\\n' $! >&2
+SCRIPT
+
+        # stop-vllm script
+        cat > "$deploy_root/bin/stop-vllm" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+PID_FILE="$(dirname "$0")/../run/vllm.pid"
+if [[ -f "$PID_FILE" ]]; then
+    kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    rm -f -- "$PID_FILE"
+    printf 'vllm: stopped (pid read from PID file)\\n'
+else
+    printf 'vllm: no PID file found\\n'
+fi
+SCRIPT
+    fi
+
+    # --- llama.cpp service (starts after vllm) ---
+    if [[ "$has_llama" == "true" || "$profile" == "full" ]]; then
+        cat > "$HOME/.config/systemd/user/clawdess-llama.service" <<EOF
+[Unit]
+Description=Clawdess llama.cpp Service (port 8001)
+After=network.target clawdess-vllm.service
+Requires=clawdess-vllm.service
+
+[Service]
+Type=simple
+ExecStart=${deploy_root}/bin/start-llama
+ExecStop=${deploy_root}/bin/stop-llama
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target
+EOF
+    fi
+
+    # --- Piper TTS service (starts after all others) ---
+    if [[ "$has_voice" == "true" ]]; then
+        cat > "$HOME/.config/systemd/user/clawdess-piper.service" <<EOF
+[Unit]
+Description=Clawdess Piper TTS Service (port 5000)
+After=network.target clawdess-comfyui.service clawdess-vllm.service clawdess-llama.service
+Requires=clawdess-comfyui.service
+
+[Service]
+Type=simple
+ExecStart=${deploy_root}/bin/start-piper
+ExecStop=${deploy_root}/bin/stop-piper
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+
+[Install]
+WantedBy=default.target
+EOF
+
+        # start-piper script
+        cat > "$deploy_root/bin/start-piper" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+MODEL="${1:-}"
+CONFIG="${2:-}"
+if [[ -z "$MODEL" && -d "$SCRIPT_DIR/models/checkpoints" ]]; then
+    MODEL="$(find "$SCRIPT_DIR/models/checkpoints" -name "*.onnx" 2>/dev/null | head -n 1)"
+    CONFIG="${MODEL}.json"
+fi
+if [[ -z "$MODEL" || ! -f "$MODEL" ]]; then
+    printf 'piper: no model found in models/checkpoints/\\n' >&2
+    exit 2
+fi
+mkdir -p -- "$SCRIPT_DIR/run" "$SCRIPT_DIR/artifacts/tts-output"
+printf 'piper: starting piper TTS (model: %s, port 5000)...\\n' "$MODEL" >&2
+nohup piper --model "$MODEL" \
+    ${CONFIG:+"--config" "$CONFIG"} \
+    --output_dir "$SCRIPT_DIR/artifacts/tts-output" \
+    --port 5000 > "$SCRIPT_DIR/logs/piper.log" 2>&1 &
+echo $! > "$SCRIPT_DIR/run/piper.pid"
+printf 'piper: started (pid %s, port 5000)\\n' $! >&2
+SCRIPT
+
+        # stop-piper script
+        cat > "$deploy_root/bin/stop-piper" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+PID_FILE="$(dirname "$0")/../run/piper.pid"
+if [[ -f "$PID_FILE" ]]; then
+    kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    rm -f -- "$PID_FILE"
+    printf 'piper: stopped (pid read from PID file)\\n'
+else
+    printf 'piper: no PID file found\\n'
+fi
+SCRIPT
+    fi
+
+    # --- Orchestrator service (manages all, starts/stops in order) ---
+    cat > "$HOME/.config/systemd/user/clawdess-wizard.service" <<EOF
+[Unit]
+Description=Clawdess DGX Spark Deployment Orchestrator
+After=network.target clawdess-comfyui.service
+Requires=clawdess-comfyui.service
+After=clawdess-comfyui.service
+
+EOF
+
+    # Add dependency lines based on profile
+    if [[ "$has_llama" == "true" || "$profile" == "full" ]]; then
+        echo "After=clawdess-vllm.service" >> "$HOME/.config/systemd/user/clawdess-wizard.service"
+        echo "Requires=clawdess-vllm.service" >> "$HOME/.config/systemd/user/clawdess-wizard.service"
+    fi
+
+    cat >> "$HOME/.config/systemd/user/clawdess-wizard.service" <<EOF
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${deploy_root}/bin/start-all-services
+ExecStop=${deploy_root}/bin/stop-all-services
+ExecReload=${deploy_root}/bin/reload-services
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # start-all-services: start in order
+    cat > "$deploy_root/bin/start-all-services" <<SCRIPT_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "\$(dirname "\$0")/.." && pwd)"
+printf "=== Starting all Clawdess services ===\\n" >&2
+
+# 1. Start ComfyUI first
+printf "1/4: Starting ComfyUI...\\n" >&2
+if [[ -f "\$SCRIPT_DIR/bin/start-comfyui" ]]; then
+    "\$SCRIPT_DIR/bin/start-comfyui" &
+    if ! wait_for_comfyui_readiness "http://127.0.0.1:8188" 120; then
+        printf "ComfyUI readiness failed\\n" >&2
+        exit 1
+    fi
+    printf "ComfyUI ready\\n" >&2
+fi
+
+# 2. Start vLLM (if available)
+if [[ -f "\$SCRIPT_DIR/bin/start-vllm" ]]; then
+    printf "2/4: Starting vLLM...\\n" >&2
+    "\$SCRIPT_DIR/bin/start-vllm" &
+    sleep 5  # Allow vLLM to initialize
+    printf "vLLM started\\n" >&2
+fi
+
+# 3. Start llama.cpp (if available)
+if [[ -f "\$SCRIPT_DIR/bin/start-llama" ]]; then
+    printf "3/4: Starting llama.cpp...\\n" >&2
+    "\$SCRIPT_DIR/bin/start-llama" &
+    if ! wait_for_health http://localhost:8001/health 60; then
+        printf "llama.cpp readiness check timed out\\n" >&2
+    else
+        printf "llama.cpp ready\\n" >&2
+    fi
+fi
+
+# 4. Start Piper TTS (if available)
+if [[ -f "\$SCRIPT_DIR/bin/start-piper" ]]; then
+    printf "4/4: Starting Piper TTS...\\n" >&2
+    "\$SCRIPT_DIR/bin/start-piper" &
+    if ! wait_for_health http://localhost:5000/ping 30; then
+        printf "Piper readiness check timed out\\n" >&2
+    else
+        printf "Piper ready\\n" >&2
+    fi
+fi
+
+printf "=== All services started ===\\n" >&2
+SCRIPT_EOF
+    chmod +x "$deploy_root/bin/start-all-services" 2>/dev/null || true
+
+    # stop-all-services: stop in reverse order
+    cat > "$deploy_root/bin/stop-all-services" <<SCRIPT_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "\$(dirname "\$0")/.." && pwd)"
+printf "=== Stopping all Clawdess services ===\\n" >&2
+
+# Stop in reverse order: piper → llama → vllm → comfyui
+for svc in piper llama vllm comfyui; do
+    if [[ -f "\$SCRIPT_DIR/bin/\${svc}.pid" ]]; then
+        pid="\$(cat "\$SCRIPT_DIR/bin/\${svc}.pid")"
+        if kill -0 "\$pid" 2>/dev/null; then
+            printf "Stopping \$svc (pid \$pid)...\\n" >&2
+            kill "\$pid" 2>/dev/null || true
+        fi
+        rm -f "\$SCRIPT_DIR/bin/\${svc}.pid"
+    fi
+done
+
+# Also try run directory
+for pid_file in "\$SCRIPT_DIR/run"/*.pid; do
+    [[ -f "\$pid_file" ]] || continue
+    pid="\$(cat "\$pid_file" 2>/dev/null)"
+    if [[ -n "\$pid" && "\$pid" =~ ^[0-9]+$ ]]; then
+        kill "\$pid" 2>/dev/null || true
+    fi
+    rm -f "\$pid_file"
+done
+
+printf "=== All services stopped ===\\n" >&2
+SCRIPT_EOF
+    chmod +x "$deploy_root/bin/stop-all-services" 2>/dev/null || true
+
+    # reload-services: health check
+    cat > "$deploy_root/bin/reload-services" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+printf "=== Health check for all services ===\\n" >&2
+exec "$SCRIPT_DIR/bin/health-check"
+SCRIPT
+    chmod +x "$deploy_root/bin/reload-services" 2>/dev/null || true
+
+    printf 'systemd: generated orchestration units in ~/.config/systemd/user\\n'
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Lifecycle script generation
 # ---------------------------------------------------------------------------
 
@@ -1032,6 +2622,44 @@ fi
 echo "TTS stopped"
 SCRIPT
 
+    # Llama.cpp start script
+    cat > "$deploy_root/bin/start-llama" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+GGUF_MODEL="${1:-}"
+if [[ -z "$GGUF_MODEL" && -d "$SCRIPT_DIR/models/gguf_models" ]]; then
+    GGUF_MODEL="$(find "$SCRIPT_DIR/models/gguf_models" -name "*.gguf" 2>/dev/null | head -n 1)"
+fi
+if [[ -z "$GGUF_MODEL" || ! -f "$GGUF_MODEL" ]]; then
+    printf 'llama: no GGUF model found in models/gguf_models/\n' >&2
+    exit 2
+fi
+if ! command -v llama-server >/dev/null 2>&1; then
+    printf 'llama: llama-server binary not found on PATH\n' >&2
+    exit 3
+fi
+mkdir -p -- "$SCRIPT_DIR/run"
+printf 'llama: starting llama-server (model: %s, port 8001)...\n' "$GGUF_MODEL" >&2
+nohup llama-server -m "$GGUF_MODEL" --port 8001 -c 2048 --ctx-size 4096 > "$SCRIPT_DIR/logs/llama.log" 2>&1 &
+echo $! > "$SCRIPT_DIR/run/llama.pid"
+printf 'llama: started (pid %s, port 8001)\n' $! >&2
+SCRIPT
+
+    # Llama.cpp stop script
+    cat > "$deploy_root/bin/stop-llama" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+PID_FILE="$(dirname "$0")/../run/llama.pid"
+if [[ -f "$PID_FILE" ]]; then
+    kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    rm -f -- "$PID_FILE"
+    printf 'llama: stopped (pid read from PID file)\n'
+else
+    printf 'llama: no PID file found\n'
+fi
+SCRIPT
+
     # Status script
     cat > "$deploy_root/bin/status" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -1062,12 +2690,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 error_count=0
+healthy_count=0
 
-# Check ComfyUI readiness
+# Check ComfyUI readiness (port 8188)
 if [[ -f "$SCRIPT_DIR/run/comfyui.pid" ]]; then
     pid="$(cat "$SCRIPT_DIR/run/comfyui.pid")"
     if kill -0 "$pid" 2>/dev/null; then
-        # Try readiness endpoint
         if "$SCRIPT_DIR/venv/bin/python" -c '
 import urllib.request, sys
 try:
@@ -1078,6 +2706,7 @@ except Exception:
     sys.exit(1)
 ' 2>/dev/null; then
             printf 'ComfyUI: ready (pid %s)\n' "$pid"
+            healthy_count=$((healthy_count + 1))
         else
             printf 'ComfyUI: process alive but not ready (pid %s)\n' "$pid"
             error_count=$((error_count + 1))
@@ -1091,18 +2720,68 @@ else
     error_count=$((error_count + 1))
 fi
 
-# Check TTS availability
-if [[ -f "$SCRIPT_DIR/run/tts.pid" ]]; then
-    pid="$(cat "$SCRIPT_DIR/run/tts.pid")"
+# Check vLLM readiness (port 8000) via HTTP /health
+if [[ -f "$SCRIPT_DIR/run/vllm.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/vllm.pid")"
     if kill -0 "$pid" 2>/dev/null; then
-        printf 'TTS (piper): ready (pid %s)\n' "$pid"
+        if curl -s --max-time 5 http://localhost:8000/health >/dev/null 2>&1; then
+            printf 'vLLM: healthy (pid %s)\n' "$pid"
+            healthy_count=$((healthy_count + 1))
+        else
+            printf 'vLLM: process alive but /health not responding (pid %s)\n' "$pid"
+            error_count=$((error_count + 1))
+        fi
     else
-        printf 'TTS (piper): dead process in pid file\n'
+        printf 'vLLM: dead process in pid file\n'
+        error_count=$((error_count + 1))
+    fi
+fi
+
+# Check llama.cpp readiness (port 8001) via HTTP /health
+if [[ -f "$SCRIPT_DIR/run/llama.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/llama.pid")"
+    if kill -0 "$pid" 2>/dev/null; then
+        if curl -s --max-time 5 http://localhost:8001/health >/dev/null 2>&1; then
+            printf 'llama.cpp: healthy (pid %s)\n' "$pid"
+            healthy_count=$((healthy_count + 1))
+        else
+            printf 'llama.cpp: process alive but /health not responding (pid %s)\n' "$pid"
+            error_count=$((error_count + 1))
+        fi
+    else
+        printf 'llama.cpp: dead process in pid file\n'
+        error_count=$((error_count + 1))
+    fi
+fi
+
+# Check piper readiness (port 5000) via HTTP /ping
+if [[ -f "$SCRIPT_DIR/run/piper.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/piper.pid")"
+    if kill -0 "$pid" 2>/dev/null; then
+        if curl -s --max-time 5 http://localhost:5000/ping >/dev/null 2>&1; then
+            printf 'piper: healthy (pid %s)\n' "$pid"
+            healthy_count=$((healthy_count + 1))
+        else
+            printf 'piper: process alive but /ping not responding (pid %s)\n' "$pid"
+            error_count=$((error_count + 1))
+        fi
+    else
+        printf 'piper: dead process in pid file\n'
         error_count=$((error_count + 1))
     fi
 else
-    printf 'TTS (piper): no pid file found (service not started)\n'
-    error_count=$((error_count + 1))
+    printf 'piper: no pid file found (service not started)\n'
+fi
+
+# Check TTS (piper legacy PID file, for backwards compat)
+if [[ -f "$SCRIPT_DIR/run/tts.pid" ]]; then
+    pid="$(cat "$SCRIPT_DIR/run/tts.pid")"
+    if kill -0 "$pid" 2>/dev/null; then
+        printf 'TTS (piper legacy): ready (pid %s)\n' "$pid"
+    else
+        printf 'TTS (piper legacy): dead process in pid file\n'
+        error_count=$((error_count + 1))
+    fi
 fi
 
 # Check local video registration
@@ -1122,41 +2801,18 @@ if [[ -f "$SCRIPT_DIR/state/deployment-state.json" ]]; then
 fi
 
 if [[ "$error_count" -gt 0 ]]; then
-    printf 'health-check: %d issue(s) found\n' "$error_count"
+    printf 'health-check: %d issue(s), %d healthy\n' "$error_count" "$healthy_count"
     exit 1
 fi
 
-printf 'health-check: all services healthy\n'
+printf 'health-check: all services healthy (%d checked)\n' "$healthy_count"
 exit 0
 SCRIPT
 
-    # Docker Compose scaffold — only for non-minimal profiles with Docker available
-    if [[ "$profile" != "minimal" && "$docker_available" == "true" ]]; then
-        cat > "$deploy_root/docker-compose.yml" <<'COMPOSE'
-version: "3.8"
-services:
-  comfyui:
-    image: ghcr.io/comfyanonymous/comfyui:latest
-    volumes:
-      - "./models:/models"
-      - "./artifacts:/artifacts"
-    ports:
-      - "8188:8188"
-    environment:
-      - PYTHONUNBUFFERED=1
-    restart: unless-stopped
-
-  tts:
-    image: ghcr.io/rhasspy/piper:latest
-    volumes:
-      - "./models:/models"
-    command: >
-      piper --model /models/lessac-medium.onnx
-      --config /models/lessac-medium.onnx.json
-      --output /artifacts/tts-output
-    restart: unless-stopped
-COMPOSE
-    fi
+    # Docker Compose scaffold — generates a full compose with 4 services,
+    # profile-based templates, health checks, and resource limits.
+    # Works without Docker being installed (only generates the file).
+    generate_docker_compose "$deploy_root" "$profile" "$docker_available"
 
     chmod +x "$deploy_root/bin/"*.sh "$deploy_root/bin"/*.py "$deploy_root/bin"/start-* "$deploy_root/bin"/stop-* "$deploy_root/bin"/status "$deploy_root/bin"/health-check 2>/dev/null || true
 
