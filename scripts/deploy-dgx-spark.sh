@@ -407,10 +407,11 @@ PHASE="startup"
 printf '=== Phase 7: Service Startup ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
-    # Start ComfyUI first
+    # Start ComfyUI first — disown so bash won't hang on it at exit (do_wait)
     printf 'startup: starting ComfyUI...\n'
     nohup "$VENV_PATH/bin/python" "$COMFYUI_PATH/main.py" > "$DEPLOY_ROOT/logs/comfyui.log" 2>&1 &
     COMFYUI_PID=$!
+    disown "$COMFYUI_PID" 2>/dev/null || true
     track_pid "$COMFYUI_PID" "comfyui"
     printf 'startup: ComfyUI started (pid %s)\n' "$COMFYUI_PID"
 

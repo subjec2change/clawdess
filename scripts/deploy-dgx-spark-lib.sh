@@ -1140,9 +1140,15 @@ install_comfyui() {
     # ComfyUI's requirements.txt contains --hash= lines which cause pip to
     # auto-enable hash-check mode (even without --require-hashes flag).
     # Strip those lines so pip installs all deps without hash enforcement.
+    # Also exclude torch/torchvision/torchaudio — we already installed nightly
+    # cu128 variants above (Phases 2/3); forcing ComfyUI's torch version would
+    # break GPU compatibility (sm_121 requires nightly, not stable).
+    # Note: ComfyUI's requirements.txt has bare 'torch'/'torchsde'/'torchvision'
+    #/'torchaudio' lines (no pin, no space) so we filter by exact-line match.
     local comfyui_req_tmp
     comfyui_req_tmp="$(mktemp)"
-    grep -v '^\s*--hash=' "$comfyui_path/requirements.txt" > "$comfyui_req_tmp" || true
+    grep -v '^\s*--hash=' "$comfyui_path/requirements.txt" | \
+        grep -vxE '(torch|torchsde|torchvision|torchaudio)' > "$comfyui_req_tmp" || true
     "$venv_python" -m pip install --no-cache-dir -r "$comfyui_req_tmp" || {
         printf 'comfyui: dependency install failed\n' >&2
         rm -f -- "$comfyui_req_tmp"
