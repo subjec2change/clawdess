@@ -663,8 +663,9 @@ install_comfyui() {
     fi
 
     # Install required dependencies via pip (no GPU required for CPU inference)
+    # Note: --require-hashes dropped because ComfyUI's requirements.txt
+    # doesn't list hashes for all transitive deps (e.g. comfyui-frontend-package)
     "$venv_python" -m pip install --no-cache-dir \
-        --require-hashes \
         -r "$comfyui_path/requirements.txt" 2>&1 | tail -5 || {
         printf 'comfyui: dependency install failed\n' >&2
         return 1
