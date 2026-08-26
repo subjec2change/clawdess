@@ -650,7 +650,13 @@ install_comfyui() {
     target_rev="$(_resolve_comfyui_revision)" || return 1
 
     if [[ ! -d "$comfyui_path/.git" ]]; then
-        git clone --branch "$target_rev" --depth 1 "$COMFYUI_URL" "$comfyui_path" || return 1
+        # If target_rev is a bare 40-char SHA (force-push fallback), clone master then checkout
+        if [[ "$target_rev" =~ ^[0-9a-f]{40}$ ]]; then
+            git clone --depth 1 "$COMFYUI_URL" "$comfyui_path" || return 1
+            git -C "$comfyui_path" checkout "$target_rev" || return 1
+        else
+            git clone --branch "$target_rev" --depth 1 "$COMFYUI_URL" "$comfyui_path" || return 1
+        fi
     else
         git -C "$comfyui_path" fetch --depth 1 origin "$target_rev" || return 1
         git -C "$comfyui_path" checkout "$target_rev" || return 1
