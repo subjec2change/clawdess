@@ -1143,12 +1143,12 @@ install_comfyui() {
     # Also exclude torch/torchvision/torchaudio — we already installed nightly
     # cu128 variants above (Phases 2/3); forcing ComfyUI's torch version would
     # break GPU compatibility (sm_121 requires nightly, not stable).
-    # Note: ComfyUI's requirements.txt has bare 'torch'/'torchsde'/'torchvision'
-    #/'torchaudio' lines (no pin, no space) so we filter by exact-line match.
+    # Note: ComfyUI's requirements.txt has lines like 'torch>=2.1.0' with version
+    # specifiers, so we use prefix match (not exact match) to catch all variants.
     local comfyui_req_tmp
     comfyui_req_tmp="$(mktemp)"
     grep -v '^\s*--hash=' "$comfyui_path/requirements.txt" | \
-        grep -vxE '(torch|torchsde|torchvision|torchaudio)' > "$comfyui_req_tmp" || true
+        grep -vE '^\s*(torch|torchsde|torchvision|torchaudio)' > "$comfyui_req_tmp" || true
     "$venv_python" -m pip install --no-cache-dir -r "$comfyui_req_tmp" || {
         printf 'comfyui: dependency install failed\n' >&2
         rm -f -- "$comfyui_req_tmp"
