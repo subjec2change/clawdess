@@ -610,7 +610,7 @@ print(json.dumps(r, separators=(',',':')))
 
 _model_record_field() {
     local record="$1" field="$2"
-    python3 -c "import json,sys; r=json.loads(sys.argv[1]); print(r.get(sys.argv[2],''))" "$record" "$field"
+    python3 -c "import json,sys; r=json.loads(sys.argv[1]); v=r.get(sys.argv[2],''); print(v if v is not None else '')" "$record" "$field"
 }
 
 # ---------------------------------------------------------------------------
