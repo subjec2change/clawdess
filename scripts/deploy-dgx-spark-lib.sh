@@ -416,12 +416,13 @@ optimize_for_gb10() {
         printf 'opt: installing PyTorch nightly cu128 (sm_121 for GB10 Blackwell)\\n' >&2
         if "$venv_python" -m pip install --pre torch torchvision torchaudio \
             --index-url https://download.pytorch.org/whl/nightly/cu128 \
+            --no-deps \
             2>/dev/null; then
             printf 'opt: PyTorch nightly cu128 (sm_121) installed\\n' >&2
             installed=$((installed + 1))
         else
             printf 'opt: PyTorch nightly cu128 install failed, trying CPU fallback\\n' >&2
-            if "$venv_python" -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 2>/dev/null; then
+            if "$venv_python" -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-deps 2>/dev/null; then
                 printf 'opt: PyTorch (CPU fallback) installed\\n' >&2
                 installed=$((installed + 1))
             else
@@ -432,7 +433,7 @@ optimize_for_gb10() {
     elif [[ -n "$venv_python" ]]; then
         # No CUDA toolkit; still ensure torch is installed (CPU-only)
         printf 'opt: no nvcc found; ensuring PyTorch (CPU) is available\\n' >&2
-        "$venv_python" -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 2>/dev/null
+        "$venv_python" -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-deps 2>/dev/null
     fi
 
     # 2. flash-attn: ARM64 + Blackwell (sm_120, binary compatible with sm_121)
