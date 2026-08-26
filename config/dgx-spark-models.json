@@ -48,16 +48,16 @@
   },
   "models": {
     "juggernaut-xl-v10": {
-      "source": "https://civitai.com/api/download/models/1296965",
-      "revision": "v10",
+      "source": "https://huggingface.co/RunDiffusion/Juggernaut-X-v10/resolve/main/Juggernaut-X-RunDiffusion-NSFW.safetensors",
+      "revision": "main",
       "files": {
         "diffusion_models": [
           {
-            "source": "https://civitai.com/api/download/models/1296965",
-            "filename": "juggernautXL_v10.safetensors",
-            "minimum_size_bytes": 6650000000,
+            "source": "https://huggingface.co/RunDiffusion/Juggernaut-X-v10/resolve/main/Juggernaut-X-RunDiffusion-NSFW.safetensors",
+            "filename": "Juggernaut-X-RunDiffusion-NSFW.safetensors",
+            "minimum_size_bytes": 7105348672,
             "required": true,
-            "checksum": "sha256:a7998502176431e30841e9253ed9a81e3b1f2a87061f72983d7e41b6d822b220",
+            "checksum": null,
             "destination": "diffusion_models"
           }
         ]
@@ -247,5 +247,6 @@
       "description": "XTTS v2 configuration seam only; runtime installation deferred",
       "speaker_wav": "<path-to-speaker-wav>"
     }
-  }
+  },
+  "minimum_size_bytes": 7105348672
 }
