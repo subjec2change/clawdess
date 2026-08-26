@@ -621,24 +621,39 @@ _model_record_field() {
 COMFYUI_REVISION="e6e0804c9dbea1cad1823527478b40f385ca6867"
 COMFYUI_URL="https://github.com/comfyanonymous/ComfyUI"
 
+# Resolve pinned revision: fall back to latest main if the pinned commit was force-pushed away
+_resolve_comfyui_revision() {
+    if git ls-remote "$COMFYUI_URL" "$COMFYUI_REVISION" 2>/dev/null | grep -q "$COMFYUI_REVISION"; then
+        printf '%s' "$COMFYUI_REVISION"
+        return 0
+    fi
+    printf 'comfyui: pinned revision %s not found in upstream (force-pushed); falling back to master\n' "$COMFYUI_REVISION" >&2
+    git ls-remote --refs "$COMFYUI_URL" refs/heads/master | awk '{print $1}' | head -1
+}
+
 install_comfyui() {
     local venv_python="${1:?venv python required}" comfyui_path="${2:?comfyui path required}"
 
     if [[ -d "$comfyui_path/.git" ]]; then
         local current_rev
         current_rev="$(git -C "$comfyui_path" rev-parse HEAD 2>/dev/null)" || true
-        if [[ "$current_rev" == "$COMFYUI_REVISION" ]]; then
-            printf 'comfyui: already installed at revision %s\n' "$COMFYUI_REVISION"
+        local target_rev
+        target_rev="$(_resolve_comfyui_revision)" || return 1
+        if [[ "$current_rev" == "$target_rev" ]]; then
+            printf 'comfyui: already installed at revision %s\n' "$target_rev"
             return 0
         fi
-        printf 'comfyui: updating from %s to %s\n' "$current_rev" "$COMFYUI_REVISION"
+        printf 'comfyui: updating from %s to %s\n' "$current_rev" "$target_rev"
     fi
 
+    local target_rev
+    target_rev="$(_resolve_comfyui_revision)" || return 1
+
     if [[ ! -d "$comfyui_path/.git" ]]; then
-        git clone --branch "$COMFYUI_REVISION" --depth 1 "$COMFYUI_URL" "$comfyui_path" || return 1
+        git clone --branch "$target_rev" --depth 1 "$COMFYUI_URL" "$comfyui_path" || return 1
     else
-        git -C "$comfyui_path" fetch --depth 1 origin "$COMFYUI_REVISION" || return 1
-        git -C "$comfyui_path" checkout "$COMFYUI_REVISION" || return 1
+        git -C "$comfyui_path" fetch --depth 1 origin "$target_rev" || return 1
+        git -C "$comfyui_path" checkout "$target_rev" || return 1
     fi
 
     # Install required dependencies via pip (no GPU required for CPU inference)
