@@ -192,7 +192,7 @@ printf '=== Phase 2: Deployment Layout ===\n'
 if [[ "$DRY_RUN" == true ]]; then
     printf 'dry-run: skipping layout creation\n'
 else
-    mkdir -p -- "$DEPLOY_ROOT"/{bin,config,logs,models,run,state,venv,artifacts}
+    mkdir -p -- "$DEPLOY_ROOT"/{bin,config,logs,models,run,state,artifacts}
     mkdir -p -- "$(dirname -- "$LOG_FILE")"
     printf 'layout: created in %s\n' "$DEPLOY_ROOT"
 fi
@@ -224,12 +224,20 @@ if [[ "$DRY_RUN" == true ]]; then
         printf 'dry-run: python_runtime_dry_run=cuda=unavailable\n'
     fi
 else
-    if [[ ! -d "$VENV_PATH" ]]; then
+    if [[ ! -d "$VENV_PATH" ]] || [[ ! -f "$VENV_PATH/bin/pip" ]]; then
         printf 'python: creating virtualenv at %s\n' "$VENV_PATH"
         python3 -m venv "$VENV_PATH" || {
             on_error 1 "$LINENO" "virtualenv creation failed"
             exit 1
         }
+    fi
+
+    # PEP 668: Remove EXTERNALLY-MANAGED marker so pip can install packages
+    # in this owned venv (no-op on Python <3.12 or systems without the marker)
+    EXTERNALLY_MANAGED="$VENV_PATH/lib/python*/EXTERNALLY-MANAGED"
+    if [[ -e "$EXTERNALLY_MANAGED" ]]; then
+        rm -f -- "$EXTERNALLY_MANAGED"
+        printf 'python: removed EXTERNALLY-MANAGED marker (PEP 668)\n'
     fi
 
     # Install dependencies
