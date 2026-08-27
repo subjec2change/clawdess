@@ -16,6 +16,70 @@ LIB = ROOT / "scripts" / "deploy-dgx-spark-lib.sh"
 CLI = ROOT / "scripts" / "deploy-dgx-spark.sh"
 
 
+@pytest.fixture
+def config_path(tmp_path):
+    """Create a minimal DGX Spark config with features, profiles, and models."""
+    cfg = {
+        "features": {
+            "photo": {
+                "description": "Photo generation",
+                "models": ["flux1-dev-fp8", "juggernaut-xl-v10", "stability-ai-sdxl-turbo"],
+            },
+            "video": {
+                "description": "Video generation",
+                "models": ["wan2gp-i2v-14B"],
+            },
+            "voice": {
+                "description": "Voice synthesis",
+                "backends": ["piper", "kokoro", "xtts-v2", "vllm"],
+            },
+        },
+        "profiles": {
+            "minimal": {
+                "features": ["photo"],
+                "provider": "local",
+                "photo_model": "juggernaut-xl-v10",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "piper",
+            },
+            "media": {
+                "features": ["photo", "video"],
+                "provider": "local",
+                "photo_model": "juggernaut-xl-v10",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "piper",
+            },
+            "assistant": {
+                "features": ["photo", "video", "voice"],
+                "provider": "remote",
+                "photo_model": "flux1-dev-fp8",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "kokoro",
+            },
+            "all": {
+                "features": ["photo", "video", "voice"],
+                "provider": "remote",
+                "photo_model": "juggernaut-xl-v10",
+                "video_model": "wan2gp-i2v-14B",
+                "tts_backend": "piper",
+            },
+        },
+        "models": {
+            "flux1-dev-fp8": {"description": "FLUX.1 Dev FP8"},
+            "juggernaut-xl-v10": {"description": "Juggernaut XL v10"},
+            "stability-ai-sdxl-turbo": {"description": "SDXL Turbo"},
+            "wan2gp-i2v-14B": {"description": "Wan2GP I2V 14B"},
+            "piper": {"description": "Piper TTS"},
+            "kokoro": {"description": "Kokoro TTS"},
+            "xtts-v2": {"description": "XTTS v2"},
+            "vllm": {"description": "vLLM TTS"},
+        },
+    }
+    path = tmp_path / "dgx-spark-models.json"
+    path.write_text(json.dumps(cfg))
+    return str(path)
+
+
 def _install_fake_runtime(root, env):
     """Create a minimal virtualenv with python and pip."""
     python = root / ".venv" / "bin" / "python"
@@ -265,6 +329,39 @@ def test_ac10_dry_run_produces_log_and_state(tmp_path):
     assert len(state_files) >= 1, "Expected deployment-state.json"
 
 
+
+def test_ac10_dry_run_persists_resolved_selections(tmp_path):
+    """Dry-run state records every resolved user selection."""
+    deploy_root = tmp_path / "deployment"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text(
+        "#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\\n'\n"
+    )
+    (fake_bin / "nvidia-smi").chmod(0o755)
+
+    env = os.environ.copy()
+    env["CLAWDESS_DEPLOY_ROOT"] = str(deploy_root)
+    env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    env["CLAWDESS_TEST_HOST_PROBE"] = "allow"
+    result = subprocess.run(
+        ["bash", str(CLI), "--profile", "media", "--features", "photo,video",
+         "--provider", "remote", "--image-model", "flux1-dev-fp8",
+         "--video-model", "wan2gp-i2v-14B", "--tts-backend", "kokoro",
+         "--dry-run", "--non-interactive"],
+        cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    state = json.loads((deploy_root / "state" / "deployment-state.json").read_text())
+    assert state["state"] == "planned"
+    assert state["selected_features"] == ["photo", "video"]
+    assert state["provider"] == "remote"
+    assert state["image_model"] == "flux1-dev-fp8"
+    assert state["video_model"] == "wan2gp-i2v-14B"
+    assert state["tts_backend"] == "kokoro"
+    assert set(state) >= {"state", "phase", "error", "models"}
+    assert "CLAWDESS" not in json.dumps(state)
+
 def test_ac10_dry_run_no_model_download(tmp_path):
     """AC10: dry run does not download models (no model files on disk)."""
     deploy_root = tmp_path / "deployment"
@@ -466,3 +563,677 @@ def test_docker_compose_scaffold_has_service_defs(tmp_path):
     assert compose.exists()
     content = compose.read_text()
     assert "services" in content.lower()
+
+
+# ====================================================================
+# select_provider — local vs remote resolution
+# ====================================================================
+
+def test_select_provider_from_profile(config_path):
+    """select_provider returns 'local' for media profile photo category."""
+    result = bash(
+        f'select_provider "{config_path}" photo media',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "local"
+
+
+def test_select_provider_interactive(config_path):
+    """select_provider returns 'remote' when user selects 2 interactively."""
+    # Use script to give a real PTY so [[ -t 0 ]] is true.
+    # Source the lib *inside* the script subshell so the function is available.
+    full = (
+        f"printf '2\\n' | script -q -c "
+        f"'source {LIB} && select_provider \"{config_path}\" video' /dev/null "
+        "| tr -d '\\r'"
+    )
+    result = subprocess.run(
+        ["bash", "-c", full],
+        capture_output=True, text=True,
+        timeout=30,
+    )
+    # script may append "Script done." — grab just the function output
+    lines = [l for l in result.stdout.strip().splitlines() if l not in ("Script started.", "Script done.")]
+    output = "\n".join(lines).strip()
+    assert result.returncode == 0, f"stderr={result.stderr}"
+    assert output.endswith("remote"), f"Expected 'remote', got: {output}"
+
+
+def test_select_provider_cli_override(config_path):
+    """select_provider returns the 4th arg (CLI override) regardless of profile."""
+    result = bash(
+        f'select_provider "{config_path}" photo media remote',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "remote"
+
+
+# ====================================================================
+# select_model — model resolution from profiles, interactive, defaults
+# ====================================================================
+
+def test_select_model_from_profile_photo(config_path):
+    """select_model returns 'juggernaut-xl-v10' for photo with media profile."""
+    result = bash(
+        f'select_model "{config_path}" photo media',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "juggernaut-xl-v10"
+
+
+def test_select_model_from_profile_video(config_path):
+    """select_model returns 'wan2gp-i2v-14B' for video with media profile."""
+    result = bash(
+        f'select_model "{config_path}" video media',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "wan2gp-i2v-14B"
+
+
+def test_select_model_interactive(config_path):
+    """select_model returns second model when user selects '2' interactively."""
+    full = (
+        'script -q -c '
+        f'"source {LIB} && select_model \\"{config_path}\\\" photo" '
+        '< /dev/null <<< \"2\"\n'
+    )
+    result = subprocess.run(
+        ["bash", "-c", full],
+        capture_output=True, text=True,
+        timeout=30,
+    )
+    lines = [l for l in result.stdout.strip().splitlines() if l not in ("Script started.", "Script done.")]
+    # Last meaningful line is the selected model
+    output = lines[-1].strip() if lines else ""
+    assert result.returncode == 0, f"stderr={result.stderr}"
+    assert output == "Select: juggernaut-xl-v10", f"Expected 'Select: juggernaut-xl-v10', got: {output}"
+
+
+def test_select_model_non_interactive_default(config_path):
+    """select_model returns first model in category when no stdin and no profile."""
+    result = bash(
+        f'select_model "{config_path}" photo ""',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "flux1-dev-fp8"
+
+
+def test_select_model_cli_override(config_path):
+    """select_model returns the model key when passed as CLI override."""
+    result = bash(
+        f'select_model "{config_path}" photo media "stability-ai-sdxl-turbo"',
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "stability-ai-sdxl-turbo"
+
+
+# ====================================================================
+# Task 1: feature/provider/model CLI contract
+# ====================================================================
+
+def test_cli_help_advertises_feature_provider_and_model_options():
+    result = subprocess.run(["bash", str(CLI), "--help"], cwd=ROOT, capture_output=True, text=True)
+    assert result.returncode == 0
+    for option in ("--features", "--provider", "--video-model"):
+        assert option in result.stdout
+
+
+def test_cli_resolves_all_feature_provider_and_model_selections(tmp_path, config_path):
+    deploy_root = tmp_path / "deployment"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'")
+    (fake_bin / "nvidia-smi").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"}
+    result = subprocess.run(["bash", str(CLI), "--profile", "media", "--features", "photo,video",
+        "--provider", "remote", "--image-model", "flux1-dev-fp8", "--video-model", "wan2gp-i2v-14B",
+        "--tts-backend", "piper", "--deploy-root", str(deploy_root), "--model-root", str(deploy_root / "models"),
+        "--dry-run", "--non-interactive"], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    assert "remote provider" in output.lower()
+
+
+def test_remote_provider_skips_local_model_acquisition(tmp_path, config_path):
+    deploy_root = tmp_path / "deployment"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'")
+    (fake_bin / "nvidia-smi").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"}
+    result = subprocess.run(["bash", str(CLI), "--profile", "assistant", "--provider", "remote",
+        "--deploy-root", str(deploy_root), "--dry-run", "--non-interactive"], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "remote provider" in (result.stdout + result.stderr).lower()
+    assert "model planned:" not in result.stdout
+
+
+def test_select_model_preserves_explicit_legacy_override(config_path):
+    result = bash(f'select_model "{config_path}" photo media juggernaut-xl-v10')
+    assert result.returncode == 0
+    assert result.stdout.strip() == "juggernaut-xl-v10"
+
+
+def test_feature_gated_dry_run_photo_only_plans_no_tts_or_video(tmp_path):
+    deploy_root = tmp_path / "deployment"
+    fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'"); (fake_bin / "nvidia-smi").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"}
+    result = subprocess.run(["bash", str(CLI), "--profile", "minimal", "--features", "photo",
+        "--deploy-root", str(deploy_root), "--dry-run", "--non-interactive"], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    assert "model planned: image" in output
+    assert "model planned: tts" not in output
+    assert "model planned: video" not in output
+
+
+def test_feature_gated_dry_run_video_plans_video_dependencies(tmp_path):
+    deploy_root = tmp_path / "deployment"
+    fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'"); (fake_bin / "nvidia-smi").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"}
+    result = subprocess.run(["bash", str(CLI), "--profile", "media", "--features", "photo,video",
+        "--deploy-root", str(deploy_root), "--dry-run", "--non-interactive"], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    assert "model planned: video" in output
+    assert "model planned: tts" not in output
+
+
+# Task 2: verified local model catalog and dependency records
+def test_task2_photo_catalog_has_verified_entries_and_file_metadata():
+    config = json.loads((ROOT / "config/dgx-spark-models.json").read_text())
+    for name in ("juggernaut-xl-v10", "pony-v6", "noobai-xl", "flux1-dev-fp8-finetune"):
+        entry = config["models"][name]
+        assert entry.get("source", "").startswith(("https://", "http://"))
+        for files in entry["files"].values():
+            for record in files:
+                assert record["source"].startswith(("https://", "http://"))
+                assert record["filename"] and record["minimum_size_bytes"] > 0
+                assert isinstance(record["required"], bool)
+                if record.get("checksum"): assert record["checksum"].startswith("sha256:")
+
+def test_task2_flux_record_does_not_claim_uncensored():
+    entry = json.loads((ROOT / "config/dgx-spark-models.json").read_text())["models"]["flux1-dev-fp8-finetune"]
+    assert entry.get("experimental") is True
+    assert "uncensored" not in json.dumps(entry).lower()
+
+def test_task2_wan2gp_expands_all_required_dependency_subdirs():
+    config = ROOT / "config/dgx-spark-models.json"
+    result = bash(f'model_records "{config}" "juggernaut-xl-v10" "piper-voice" "wan2gp-i2v-14B" "video"')
+    assert result.returncode == 0, result.stderr
+    records = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert {r["subdir"] for r in records} == {"diffusion_models", "text_encoders", "vae", "clip_vision"}
+    assert {r["subdir"]: r["filename"] for r in records} == {"diffusion_models": "wan2.1_i2v_480p_14b_fp16.safetensors", "text_encoders": "umt5_xxl_fp8_e4m3fn_scaled.safetensors", "vae": "wan_2.1_vae.safetensors", "clip_vision": "clip_vision_h.safetensors"}
+
+def test_task2_model_records_rejects_incomplete_nested_file_record(tmp_path):
+    config = tmp_path / "invalid.json"
+    config.write_text(json.dumps({"models": {"broken": {"files": {"vae": [{"source": "https://example.invalid/x"}]}}}}))
+    result = bash(f'model_records "{config}" "broken" "" "" "photo"')
+    assert result.returncode != 0
+    assert "invalid model record" in result.stderr
+
+
+# Task 3: truthful voice backend catalog and installer seams
+def test_task3_voice_catalog_declares_supported_and_deferred_backends():
+    config = json.loads((ROOT / "config/dgx-spark-models.json").read_text())
+    voice = config["voice_backends"]
+    assert voice["piper"]["status"] == "verified"
+    assert voice["kokoro"]["status"] == "experimental"
+    assert voice["xtts-v2"]["status"] == "deferred"
+    assert voice["kokoro"]["voices"] == ["af_heart", "af_bella", "af_nicole", "af_sky", "am_adam", "am_michael"]
+    assert voice["xtts-v2"]["speaker_wav"] == "<path-to-speaker-wav>"
+
+def test_task3_backend_validation_aliases_and_deferred_errors(config_path):
+    for backend, expected in (("piper", "piper"), ("piper-voice", "piper"), ("kokoro", "kokoro"), ("xtts", "xtts-v2"), ("xtts-v2", "xtts-v2")):
+        result = bash(f'validate_voice_backend "{config_path}" "{backend}"')
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == expected
+    result = bash(f'validate_voice_backend "{config_path}" vllm')
+    assert result.returncode != 0
+    assert "unsupported" in result.stderr.lower() or "deferred" in result.stderr.lower()
+
+def test_task5_voice_backend_status_is_structured_and_truthful(config_path):
+    for backend, expected_state in (("piper", "verified"), ("kokoro", "experimental"), ("xtts", "deferred")):
+        result = bash(f'voice_backend_status "{ROOT / "config/dgx-spark-models.json"}" "{backend}"')
+        assert result.returncode == 0, result.stderr
+        data = json.loads(result.stdout)
+        assert data["backend"] == ("xtts-v2" if backend == "xtts" else backend)
+        assert data["state"] == expected_state
+        assert data["reason"]
+    xtts = json.loads(bash(f'voice_backend_status "{ROOT / "config/dgx-spark-models.json"}" xtts-v2').stdout)
+    assert xtts["speaker_wav"] == "<path-to-speaker-wav>"
+    result = bash(f'voice_backend_status "{ROOT / "config/dgx-spark-models.json"}" vllm')
+    assert result.returncode != 0
+    assert "unsupported" in result.stderr.lower()
+
+
+def test_task3_acquire_voice_only_does_not_plan_image(config_path, tmp_path):
+    result = bash(f'model_records "{config_path}" "juggernaut-xl-v10" piper "" voice')
+    assert result.returncode == 0
+    records = [json.loads(x) for x in result.stdout.splitlines() if x.strip()]
+    assert records and {r["kind"] for r in records} == {"tts"}
+
+def test_task3_install_dispatch_is_truthful_and_piper_only_smoke(config_path):
+    result = bash('install_voice_backend piper /bin/false')
+    assert result.returncode != 0
+    assert "piper" in result.stderr.lower()
+    result = bash('install_voice_backend kokoro /bin/false')
+    assert result.returncode != 0
+    assert "experimental" in result.stderr.lower() or "deferred" in result.stderr.lower()
+
+
+def test_task1_download_piper_model_creates_files(tmp_path):
+    """download_piper_model downloads model+config to deploy_root/models/checkpoints."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    
+    # Mock curl by creating a fake script that writes test files
+    fake_bin = tmp_path / "fakebin"
+    fake_bin.mkdir()
+    curl_script = fake_bin / "curl"
+    curl_script.write_text(f"""#!/usr/bin/env bash
+# Mock curl - create test files instead of downloading
+mkdir -p "{deploy_root}/models/checkpoints"
+echo "test model content" > "{deploy_root}/models/checkpoints/en_US-ljspeech-medium.onnx"
+echo "test config content" > "{deploy_root}/models/checkpoints/en_US-ljspeech-medium.json"
+""")
+    curl_script.chmod(0o755)
+    
+    env_patch = f'PATH="{fake_bin}:/usr/bin:/bin"'
+    bash_script = f"""#!/usr/bin/env bash
+{env_patch}
+{LIB.read_text()}
+download_piper_model "{deploy_root}" "en_US-ljspeech-medium"
+"""
+    script_path = tmp_path / "test_download.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    model_file = deploy_root / "models/checkpoints/en_US-ljspeech-medium.onnx"
+    config_file = deploy_root / "models/checkpoints/en_US-ljspeech-medium.json"
+    assert result.returncode == 0, result.stderr
+    assert model_file.exists()
+    assert config_file.exists()
+    assert model_file.stat().st_size > 0
+    assert config_file.stat().st_size > 0
+
+
+# Task 4: local video provisioning seam
+
+def test_task4_local_video_scaffold_wires_selected_model_paths(tmp_path):
+    deploy_root = tmp_path / "deploy"
+    result = bash(f'provision_local_video "{deploy_root}" "{deploy_root}" "wan2gp-i2v-14B" "{ROOT / "config/dgx-spark-models.json"}" false')
+    assert result.returncode != 0
+    assert "deferred" in (result.stdout + result.stderr).lower()
+    manifest = json.loads((deploy_root / "config" / "video-local.json").read_text())
+    assert manifest["provider"] == "local" and manifest["model"] == "wan2gp-i2v-14B" and manifest["status"] == "deferred"
+    assert manifest["model_root"] == str(deploy_root / "models")
+    assert manifest["dependencies"] == {k: str(deploy_root / "models" / k) for k in ("diffusion_models", "text_encoders", "vae", "clip_vision")}
+
+def test_task4_local_video_registers_lifecycle_and_health(tmp_path):
+    deploy_root = tmp_path / "deploy"
+    result = bash(f'generate_lifecycle_scripts "{deploy_root}" "{deploy_root}" "media" "false"; provision_local_video "{deploy_root}" "{deploy_root}" "wan2gp-i2v-14B" "{ROOT / "config/dgx-spark-models.json"}" false')
+    assert result.returncode != 0
+    for name in ("start-video", "stop-video"): assert (deploy_root / "bin" / name).exists()
+    assert "video" in (deploy_root / "bin" / "health-check").read_text().lower()
+
+def test_task4_remote_provider_skips_local_video_provisioning(tmp_path):
+    deploy_root = tmp_path / "deploy"
+    result = bash(f'provision_video "{deploy_root}" "{deploy_root}" remote "wan2gp-i2v-14B" "{ROOT / "config/dgx-spark-models.json"}" false')
+    assert result.returncode == 0 and "remote provider" in result.stdout.lower()
+    assert not (deploy_root / "config" / "video-local.json").exists()
+
+def test_task4_dry_run_reports_deferred_without_scaffold_write(tmp_path):
+    deploy_root = tmp_path / "deploy"
+    result = bash(f'provision_local_video "{deploy_root}" "{deploy_root}" "wan2gp-i2v-14B" "{ROOT / "config/dgx-spark-models.json"}" true')
+    assert result.returncode == 0 and "deferred" in result.stdout.lower() and not deploy_root.exists()
+
+
+
+def test_capability_manifest_rejects_unknown_catalog_status(tmp_path, config_path):
+    config = json.loads(Path(config_path).read_text())
+    config["models"]["juggernaut-xl-v10"]["status"] = "catalog-corruption"
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text(json.dumps(config))
+    result = bash(f'capability_manifest "{malformed}" "photo" "local" "juggernaut-xl-v10" "" ""')
+    assert result.returncode != 0
+    assert "unknown capability status" in result.stderr.lower()
+
+def test_capability_state_mapping_persists_selected_provider_separately(tmp_path, config_path):
+    result = bash(f'capability_manifest "{config_path}" "photo,video,voice" "remote" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper"')
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["provider"] == "remote"
+    assert data["capability_states"]["photo"]["state"] == "verified"
+    assert data["capability_states"]["video"]["state"] == "deferred"
+    assert data["capability_states"]["voice"]["state"] == "verified"
+    assert data["capability_states"]["photo"]["provider"] == "remote"
+    assert data["capability_states"]["video"]["local_dependencies"] is True
+
+
+def test_non_dry_run_deferred_capability_warns_not_fails(tmp_path, config_path):
+    """capability_reject_non_dry_run always returns 0 per UX decision #3 (caller decides)."""
+    root = tmp_path / "deploy"; root.mkdir()
+    cap = root / "capability.json"
+    result = bash(f'capability_manifest "{config_path}" "photo,video" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper" > "{cap}"')
+    assert result.returncode == 0, result.stderr
+    result = bash(f'capability_reject_non_dry_run "{cap}"')
+    assert result.returncode == 0  # per grilling decision #3: returns JSON summary, caller decides
+    output = result.stdout + result.stderr
+    data = json.loads(cap.read_text())
+    assert data["capability_states"]["video"]["state"] == "deferred"
+
+
+def test_capability_status_summary_returns_all_states(tmp_path, config_path):
+    """capability_status_summary extracts capability states for warning display."""
+    result = bash(f'capability_manifest "{config_path}" "photo,video,voice" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper"')
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert "capability_states" in data
+    assert data["capability_states"]["photo"]["state"] == "verified"
+    assert data["capability_states"]["video"]["state"] == "deferred"
+    assert data["capability_states"]["voice"]["state"] == "verified"
+
+
+def test_state_write_persists_capability_states_and_manifest(tmp_path):
+    deploy_root = tmp_path / 'deploy'
+    cap_path = tmp_path / 'capability.json'
+    cap_path.write_text(json.dumps({'capability_states': {'photo': {'state': 'verified'}}, 'provider': 'remote'}))
+    result = bash(f'''state_write "{deploy_root}" models planned "" planned "$(cat "{cap_path}")"''')
+    assert result.returncode == 0, result.stderr
+    state = json.loads((deploy_root / 'state' / 'deployment-state.json').read_text())
+    manifest = json.loads((deploy_root / 'deployment-manifest.json').read_text())
+    assert state['capability_states']['photo']['state'] == 'verified'
+    assert manifest['capability_states'] == state['capability_states']
+    assert manifest['provider'] == 'remote'
+
+
+def test_state_success_preserves_capability_states_in_manifest(tmp_path):
+    deploy_root = tmp_path / 'deploy'
+    cap_path = tmp_path / 'capability.json'
+    cap_path.write_text(json.dumps({'capability_states': {'video': {'state': 'deferred'}}, 'provider': 'remote'}))
+    result = bash(f'''state_write "{deploy_root}" models planned "" planned "$(cat "{cap_path}")"; state_success "{deploy_root}"''')
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((deploy_root / 'deployment-manifest.json').read_text())
+    assert manifest['state'] == 'completed'
+    assert manifest['capability_states'] == {'video': {'state': 'deferred'}}
+    assert manifest['provider'] == 'remote'
+
+
+def test_failed_capability_state_persists_mapping(tmp_path, config_path):
+    deploy_root = tmp_path / "deploy"
+    cap = deploy_root / "capability.json"
+    result = bash(f'mkdir -p "{deploy_root}"; capability_manifest "{config_path}" "photo,video" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper" > "{cap}"; state_write "{deploy_root}" models "capability selection blocked" "" "failed" "$(cat "{cap}")"')
+    assert result.returncode == 0, result.stderr
+    state = json.loads((deploy_root / "state" / "deployment-state.json").read_text())
+    assert state["state"] == "failed"
+    assert state["capability_states"]["video"]["state"] == "deferred"
+
+
+@pytest.mark.parametrize("state", ["deferred", "unavailable", "blocked"])
+def test_remote_non_dry_run_capability_states_return_summary(tmp_path, state):
+    """capability_reject_non_dry_run now returns 0 always (caller decides per UX grilling)."""
+    cap = tmp_path / "capability.json"
+    cap.write_text(json.dumps({"provider": "remote", "capability_states": {"video": {"state": state, "provider": "remote"}}}))
+    result = bash(f'capability_reject_non_dry_run "{cap}"')
+    assert result.returncode == 0  # no longer blocks
+    data = json.loads(cap.read_text())
+    assert data["capability_states"]["video"]["state"] == state
+
+
+def test_cli_rejects_remote_non_dry_run_capability_states(tmp_path):
+    content = CLI.read_text()
+    capability_gate = content[content.index('CAPABILITY_JSON='):content.index('SELECTION_JSON=')]
+    assert 'if [[ "$DRY_RUN" != true ]]; then' in capability_gate
+    assert '"$PROVIDER" != remote' not in capability_gate
+
+
+def test_video_preflight_reports_machine_readable_missing_runtime(tmp_path):
+    """Video preflight must distinguish missing runtime prerequisites."""
+    script = ROOT / "scripts" / "check-dgx-video-runtime.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    env["CLAWDESS_TEST_DOCKER"] = "missing"
+    result = subprocess.run(["bash", str(script), str(tmp_path / "deployment")], cwd=ROOT, env=env, text=True, capture_output=True, check=False)
+    assert result.returncode != 0
+    lines = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+    assert lines["VIDEO_PREFLIGHT_STATUS"] == "failed"
+    assert lines["VIDEO_DOCKER"] in {"missing", "unavailable"}
+    assert lines["VIDEO_ARTIFACT_EVIDENCE"] == "absent"
+
+
+# Task 4 review blocker coverage: direct runtime preflight contract tests.
+def _run_video_preflight(tmp_path, *, health="fail", state=None, artifact=False, dependency=False, docker_missing=False):
+    root = tmp_path / "deployment"
+    (root / "models").mkdir(parents=True)
+    if not (not dependency and health == "fail" and state is None):
+        (root / "models" / "wan-video.safetensors").write_bytes(b"model")
+    (root / "artifacts" / "video").mkdir(parents=True)
+    if artifact:
+        (root / "artifacts" / "video" / "sample.mp4").write_bytes(b"video")
+    (root / "state").mkdir()
+    if state is not None:
+        (root / "state" / "deployment-state.json").write_text(json.dumps(state))
+    if dependency:
+        (root / "video-runtime").mkdir()
+        (root / "video-runtime" / "wan2gp").write_text("runtime")
+        (root / "config").mkdir()
+        (root / "config" / "video-local.json").write_text(json.dumps({
+            "status": "verified", "dependencies": {"runtime": str(root / "video-runtime" / "wan2gp")}
+        }))
+    fake = tmp_path / "bin"; fake.mkdir()
+    (fake / "uname").write_text("#!/bin/sh\nprintf aarch64\n"); (fake / "uname").chmod(0o755)
+    (fake / "docker").write_text("#!/bin/sh\nexit 0\n"); (fake / "docker").chmod(0o755)
+    (fake / "nvidia-smi").write_text("#!/bin/sh\nprintf 'GB10, 12.1\\n'\n"); (fake / "nvidia-smi").chmod(0o755)
+    sock = tmp_path / "docker.sock"
+    import socket
+    s = socket.socket(socket.AF_UNIX); s.bind(str(sock))
+    env = os.environ.copy(); env.update({"PATH": f"{fake}:/usr/bin:/bin", "DOCKER_HOST_SOCKET": str(sock), "CLAWDESS_TEST_DOCKER": "missing" if docker_missing else ""})
+    if health == "pass":
+        (fake / "curl").write_text("#!/bin/sh\nexit 0\n")
+    else:
+        (fake / "curl").write_text("#!/bin/sh\nexit 22\n")
+    (fake / "curl").chmod(0o755)
+    result = subprocess.run(["bash", str(ROOT / "scripts" / "check-dgx-video-runtime.sh"), str(root)], cwd=ROOT, env=env, text=True, capture_output=True)
+    s.close(); return result, dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+
+def test_video_preflight_reports_missing_model_and_dependency_paths(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, docker_missing=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_MODEL_PATH"] == "absent"
+    assert lines["VIDEO_DEPENDENCY_PATH"] == "absent"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+
+
+def test_video_preflight_unavailable_health_stays_preflight(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, health="fail", state={"state": "completed"}, dependency=True, docker_missing=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_SERVICE_HEALTH"] == "failed"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+
+
+def test_video_preflight_passing_health_requires_all_preflights(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, health="pass", state={"state": "completed"}, dependency=True, docker_missing=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_SERVICE_HEALTH"] == "passing"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+    assert lines["VIDEO_PREFLIGHT_STATUS"] == "failed"
+
+
+def test_video_preflight_accepts_structured_state_and_artifact_evidence(tmp_path):
+    result, lines = _run_video_preflight(tmp_path, health="pass", state={"state": "completed"}, dependency=True, artifact=True)
+    assert result.returncode == 0, result.stderr
+    assert lines["VIDEO_STATE_EVIDENCE"] == "present"
+    assert lines["VIDEO_ARTIFACT_EVIDENCE"] == "present"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "artifact"
+
+
+@pytest.mark.parametrize("bad_state", [{"state": "planned"}, {"state": "dry-run"}, {"state": "failed"}, {"arbitrary": "non-empty"}])
+def test_video_preflight_rejects_untruthful_state_evidence(tmp_path, bad_state):
+    result, lines = _run_video_preflight(tmp_path, health="pass", state=bad_state, dependency=True, artifact=True)
+    assert result.returncode != 0
+    assert lines["VIDEO_STATE_EVIDENCE"] == "absent"
+    assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
+
+
+def test_smoke_test_kokoro_deferred_when_models_missing(tmp_path):
+    """smoke_test_kokoro returns 1 (deferred) when model files are absent."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    lib_content = LIB.read_text()
+    bash_script = f"""#!/usr/bin/env bash
+{lib_content}
+smoke_test_kokoro "{fake_python}" "{deploy_root}"
+"""
+    script_path = tmp_path / "kokoro_smoke.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    assert result.returncode == 1, result.stderr
+    assert "deferred" in result.stderr.lower() or "missing" in result.stderr.lower()
+
+
+def test_smoke_test_kokoro_returns_deferred_when_package_missing(tmp_path):
+    """smoke_test_kokoro returns 1 (deferred) when package is not installed (even if models exist)."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    checkpoints = deploy_root / "models/checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / "kokoro-v1.0.onnx").write_text("dummy model")
+    (checkpoints / "voices-v1.0.bin").write_text("dummy voices")
+    lib_content = LIB.read_text()
+    bash_script = f"""#!/usr/bin/env bash
+{lib_content}
+smoke_test_kokoro "{fake_python}" "{deploy_root}"
+"""
+    script_path = tmp_path / "kokoro_smoke2.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    # Returns 1 because package is not installed (pip show fails)
+    assert result.returncode == 1, result.stderr
+    assert "package not installed" in result.stderr.lower()
+
+
+def test_smoke_test_video_deferred_when_models_missing(tmp_path):
+    """smoke_test_video returns 1 (deferred) when Wan2GP model is absent."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    comfyui_path = deploy_root / "comfyui"
+    comfyui_path.write_text("#!/bin/bash\nsleep 1\n")
+    comfyui_path.chmod(0o755)
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    # No Wan2GP models under models/
+    lib_content = LIB.read_text()
+    bash_script = f"""#!/usr/bin/env bash
+{lib_content}
+smoke_test_video "{comfyui_path}" "{fake_python}" "{deploy_root}" ""
+"""
+    script_path = tmp_path / "video_smoke.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1, result.stderr
+    assert "deferred" in result.stderr.lower() or "not found" in result.stderr.lower()
+
+
+def test_smoke_test_video_returns_failure_on_comfyui_not_ready(tmp_path):
+    """smoke_test_video returns 2 when ComfyUI doesn't become ready."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    comfyui_path = deploy_root / "comfyui"
+    comfyui_path.write_text("#!/bin/bash\nsleep 60\n")
+    comfyui_path.chmod(0o755)
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    wan_model = deploy_root / "models/diffusion_models/wan2.1_i2v_480p_14b_fp16.safetensors"
+    wan_model.parent.mkdir(parents=True)
+    wan_model.write_bytes(b"dummy model data" * 1000000)
+    lib_content = LIB.read_text()
+    video_config = str(tmp_path / "video-config.json")
+    with open(video_config, "w") as f:
+        json.dump({"model": "wan2.1"}, f)
+    bash_script = (
+        '#!/usr/bin/env bash\n'
+        + lib_content + '\n'
+        + 'smoke_test_video "' + str(comfyui_path) + '" "' + str(fake_python) + '" "' + str(deploy_root) + '" "' + video_config + '"\n'
+    )
+    script_path = tmp_path / "video_smoke2.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 2, result.stderr
+
+
+def test_video_state_manifest_includes_capability_status(tmp_path):
+    """deployment manifest records capability state."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    state_root = deploy_root / "state"
+    state_root.mkdir()
+    lib_content = LIB.read_text()
+    bash_script = (
+        '#!/usr/bin/env bash\n'
+        + lib_content + '\n'
+        + 'state_success "' + str(deploy_root) + '"\n'
+    )
+    script_path = tmp_path / "manifest.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    manifest_path = deploy_root / "deployment-manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest.get("state") == "completed"
+    assert manifest.get("phase") == "completed"
+
+
+def test_generated_lifecycle_scripts_have_bash_syntax(tmp_path):
+    deploy_root = tmp_path / "deploy"; state_root = tmp_path / "state"
+    deploy_root.mkdir(); state_root.mkdir()
+    result = bash(f'generate_lifecycle_scripts "{deploy_root}" "{state_root}"')
+    assert result.returncode == 0
+    for path in (deploy_root / "bin").iterdir():
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, path
+
+
+def test_public_command_help_works_from_clean_clone():
+    result = subprocess.run(["bash", str(CLI), "--help"], cwd=ROOT, text=True, capture_output=True)
+    assert result.returncode == 0
+    assert "interactive" in (result.stdout + result.stderr).lower()
+
+def test_interactive_no_profile_shows_summary_and_waits_before_mutation(tmp_path):
+    deploy_root = tmp_path / "deployment"; fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    smi = fake_bin / "nvidia-smi"; smi.write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'\n"); smi.chmod(0o755)
+    env = os.environ.copy(); env.update({"CLAWDESS_DEPLOY_ROOT": str(deploy_root), "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"})
+    command = f"printf '1\n1\n1\n1\nn\n' | bash {CLI}"
+    result = subprocess.run(["script", "-q", "-c", command, "/dev/null"], cwd=ROOT, env=env, text=True, capture_output=True)
+    output = result.stdout + result.stderr
+    assert "selection summary" in output.lower(); assert "aborted" in output.lower(); assert not (deploy_root / "state").exists()
+
+def test_interactive_no_profile_persists_selected_values_on_dry_run(tmp_path):
+    deploy_root = tmp_path / "deployment"; fake_bin = tmp_path / "bin"; fake_bin.mkdir()
+    smi = fake_bin / "nvidia-smi"; smi.write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'\n"); smi.chmod(0o755)
+    env = os.environ.copy(); env.update({"CLAWDESS_DEPLOY_ROOT": str(deploy_root), "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"})
+    command = f"printf '1\n1\n1\n1\n1\ny\n' | bash {CLI} --dry-run"
+    result = subprocess.run(["script", "-q", "-c", command, "/dev/null"], cwd=ROOT, env=env, text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    state = json.loads((deploy_root / "state" / "deployment-state.json").read_text())
+    assert state["selected_features"] == ["photo"]; assert state["provider"] == "local"; assert state["tts_backend"] == "piper-voice"

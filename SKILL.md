@@ -10,7 +10,7 @@ Use this skill to send companion media through `scripts/clawdess.py`.
 
 ## Inputs
 
-- Reference image URL: read from `IDENTITY.md` for photo generation.
+- Reference image HTTPS URL or local PNG/JPEG/WebP path: read from `IDENTITY.md` for photo generation.
 - Personality and continuity: use `IDENTITY.md`, `SOUL.md`, and the current chat context when present.
 - Provider: read the default photo/video/voice provider from `SOUL.md`. Pass it with `--provider`. If `SOUL.md` does not name a provider for that media type, omit `--provider` so the CLI uses its built-in default.
 - API keys: pass `--api` or rely on `CLAWDESS_PHOTO_API`, `CLAWDESS_VIDEO_API`, and `CLAWDESS_VOICE_API`.
@@ -148,7 +148,7 @@ Follow these steps to get ComfyUI and TTS running on a GB10 DGX Spark host.
 
 - **Hardware**: NVIDIA GB10 GPU (compute capability 12.1)
 - **OS**: Linux (aarch64) with Python 3.11+
-- **Optional**: Docker (required for `media` and `assistant` profiles)
+- **Optional**: Docker (used by deferred non-minimal lifecycle profiles; not required for `minimal` dry runs)
 - **Disk**: At least 8 GB free on the model root filesystem
 - **Network**: Internet access for model downloads (CivitAI, HuggingFace)
 
@@ -174,6 +174,17 @@ Always preview before committing:
 ```
 
 This creates log and state artifacts in `$DEPLOY_ROOT/logs/` without downloading models, creating venvs, or starting services. The state is recorded as `planned`.
+
+### Feature-First Selection
+
+When a profile is supplied, Phase 5 resolves its feature bundle and catalog defaults before acquisition:
+
+- `minimal`: photo + Piper voice, no Docker prerequisite
+- `media`: photo + video + Piper voice; video acquisition is experimental
+- `assistant`: photo + video + Piper voice; local LLM setup is not yet wired
+- `all`: all catalog features; experimental and not recommended for unattended runs
+
+Explicit `--image-model` and `--tts-backend` values override profile defaults. The current catalog supports `juggernaut-xl-v10`, `stability-ai-sdxl-turbo`, `wan2gp-i2v-14B`, and Piper voice files. Video, local LLM, Kokoro, XTTS, and additional diffusion models remain catalog work rather than verified deployment features. Capability states are explicit in deployment state/manifest data: `verified`, `experimental`, `deferred`, `unavailable`, or `blocked`. Provider selection is recorded separately from local dependencies. Remote inference is not automatically local-free: delegated photo work may skip local photo acquisition, while local video dependencies remain reported as deferred and explicitly selected voice still requires its local backend. Local dependencies are reported separately in capability and video manifests. Non-dry-run selection of a deferred, unavailable, or blocked capability exits nonzero with the capability and state; use `--dry-run` to inspect such a plan without claiming installation.
 
 ### Step 3 — Deploy
 
@@ -210,6 +221,32 @@ Or inspect the deployment state:
 $DEPLOY_ROOT/bin/status
 ```
 
+
+## TTS Capability Structure (three-tier)
+
+The wizard supports three TTS backends with distinct capability states:
+
+| Backend | State | Smoke Test Behavior |
+|---------|-------|---------------------|
+| **Piper** | `verified` | Installs via pip, downloads voice model, runs `smoke_test_piper()` — generates audio on success |
+| **Kokoro** | `experimental` | Installs pip package, returns `1` (deferred) if model files absent, `2` (partial) if models present but no executable available |
+| **XTTS-v2** | `deferred` | Catalog entry only; manual install required (Coqui TTS + speaker_wav); installer returns `1` with deferred message |
+
+Install dispatch (`install_voice_backend`) is truthful: it never silently succeeds for a backend that isn't ready. The `voice_backend_status()` function returns structured JSON for each backend with its state and metadata.
+
+Configuration lives in `config/dgx-spark-models.json` under `voice_backends`. Piper and Kokoro have pre-defined voice variants; XTTS-v2 requires a `speaker_wav` path pointing to a recording of the target voice.
+
+## Video Capability Status
+
+Video generation is `deferred` in this deployment wizard. The smoke test (`smoke_test_video`) checks for Wan2GP model files and returns:
+- `1` — deferred (Wan2GP model absent under `$DEPLOY_ROOT/models`)
+- `2` — failure (ComfyUI not ready, workflow submission failed, or no artifact produced)
+- `0` — success (real `.webm`/`.mp4` artifact verified)
+
+Video capability is only considered `verified` when a real artifact is produced. Dry-run or planned state never counts as evidence.
+
+Run `scripts/check-dgx-video-runtime.sh [DEPLOY_ROOT]` before claiming native GB10 video support. It emits stable `VIDEO_*=` evidence lines and exits nonzero when required host, CUDA, Docker/socket, storage, memory, model, dependency, or state checks fail. Evidence levels are strictly ordered: `preflight` means prerequisites only; `health` additionally requires a real service health response; `artifact` additionally requires recorded state and a non-empty video artifact. Dry-run and planned state never count as health or artifact evidence. The check never downloads credentials or fabricates runtime evidence.
+
 ## How-To
 
 ### Choose a Profile
@@ -217,11 +254,11 @@ $DEPLOY_ROOT/bin/status
 | Profile | What it installs | Docker needed? |
 |---------|-----------------|----------------|
 | `minimal` | ComfyUI + Piper TTS (default) | No |
-| `media` | minimal + video dependencies/models | Yes |
-| `assistant` | minimal + local LLM | Yes |
-| `all` | all of the above | Yes |
+| `media` | minimal + experimental video catalog entry | Optional/deferred |
+| `assistant` | minimal + experimental video bundle; no LLM installer yet | Optional/deferred |
+| `all` | all currently cataloged features | Optional/deferred |
 
-`all` prompts for confirmation unless `--yes` is given.
+Non-interactive mode requires `--profile`. Use `--yes` when a future interactive flow requires confirmation; the current non-interactive path resolves profile defaults without prompting.
 
 ### Deploy Root and Model Root
 

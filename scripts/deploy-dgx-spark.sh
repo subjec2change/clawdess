@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# DGX Spark Deployment Wizard — entry point.
-# Usage:
-#   ./scripts/deploy-dgx-spark.sh --profile minimal --image-model juggernaut-xl-v10 --tts-backend piper [--dry-run] [--non-interactive] [--yes]
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +13,11 @@ trap 'status=$?; trap - ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
 # Defaults
 # ---------------------------------------------------------------------------
 PROFILE=""
+FEATURES=""
+PROVIDER=""
 IMAGE_MODEL=""
+VIDEO_MODEL=""
+TEXT_MODEL=""
 TTS_BACKEND=""
 DRY_RUN=false
 NON_INTERACTIVE=false
@@ -43,7 +43,11 @@ fi
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --profile) PROFILE="$2"; shift 2 ;;
+        --features) FEATURES="$2"; shift 2 ;;
+        --provider) PROVIDER="$2"; shift 2 ;;
         --image-model) IMAGE_MODEL="$2"; shift 2 ;;
+        --video-model) VIDEO_MODEL="$2"; shift 2 ;;
+        --text-model) TEXT_MODEL="$2"; shift 2 ;;
         --tts-backend) TTS_BACKEND="$2"; shift 2 ;;
         --deploy-root) DEPLOY_ROOT="$2"; shift 2 ;;
         --model-root) MODEL_ROOT="$2"; shift 2 ;;
@@ -53,7 +57,7 @@ while [[ $# -gt 0 ]]; do
         --verbose) VERBOSE=true; shift ;;
         --reset) RESET=true; shift ;;
         --help)
-            printf 'Usage: %s [--profile minimal|media|assistant|all] [--image-model <model>] [--tts-backend <backend>] [--deploy-root <path>] [--model-root <path>] [--dry-run] [--non-interactive] [--verbose] [--reset] [--yes]\n' "$0"
+            printf 'Usage: %s [--profile minimal|media|assistant|llm|all] [--features <list>] [--provider local|remote] [--image-model <model>] [--video-model <model>] [--text-model <model>] [--tts-backend <backend>] [--deploy-root <path>] [--model-root <path>] [--dry-run] [--non-interactive] [--verbose] [--reset] [--yes]\n' "$0"
             exit 0
             ;;
         *)
@@ -71,7 +75,7 @@ STATE_ROOT="$DEPLOY_ROOT"
 RUN_LOG="$DEPLOY_ROOT/logs/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
 LOG_FILE="$RUN_LOG"
 mkdir -p -- "$(dirname -- "$RUN_LOG")"
-trap 'status=$?; trap - ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
+trap 'status=$?; trap - EXIT ERR; on_error "$status" "$LINENO" "$BASH_COMMAND"' ERR
 
 if [[ "$NON_INTERACTIVE" == true && -z "$PROFILE" ]]; then
     PHASE="validation"
@@ -86,11 +90,65 @@ if [[ "$RESET" == true ]]; then
 fi
 if [[ "$VERBOSE" == true ]]; then printf 'verbose: deploy-root=%s model-root=%s profile=%s\n' "$DEPLOY_ROOT" "$MODEL_ROOT" "$PROFILE"; fi
 
+# A no-profile invocation is the public interactive wizard.  Use /dev/tty so
+# it remains interactive when launched by a shell wrapper or test harness.
+if [[ -z "$PROFILE" && "$NON_INTERACTIVE" != true ]]; then
+    if [[ ! -r /dev/tty ]]; then
+        printf 'validation: no profile supplied and no interactive TTY is available; use --profile with --non-interactive\n' >&2
+        exit 2
+    fi
+    printf '=== Clawdess DGX Spark Interactive Wizard ===\n' >&2
+    export CLAWDESS_INTERACTIVE_WIZARD=1
+    exec 3<&0
+    FEATURES="$(select_features "$CONFIG" "" 0<&3)" || exit 2
+    PROVIDER="$(select_provider "$CONFIG" photo "" 0<&3)" || exit 2
+    IMAGE_MODEL="$(select_model "$CONFIG" photo "" 0<&3)" || exit 2
+    if feature_selected "$FEATURES" video; then
+        VIDEO_MODEL="$(select_model "$CONFIG" video "" 0<&3)" || exit 2
+    else
+        VIDEO_MODEL="$(select_model "$CONFIG" video "" 0<&3)" || exit 2
+    fi
+    if feature_selected "$FEATURES" voice; then
+        TTS_BACKEND="$(select_model "$CONFIG" voice "" 0<&3)" || exit 2
+        TTS_BACKEND="$(validate_voice_backend "$CONFIG" "$TTS_BACKEND")" || exit 2
+    else
+        TTS_BACKEND="$(select_model "$CONFIG" voice "" 0<&3)" || exit 2
+    fi
+    # Text generation model selection (vLLM / Llama) — only when the feature is active
+    if feature_selected "$FEATURES" "text-generation"; then
+        TEXT_MODEL="$(select_model "$CONFIG" "text-generation" "" 0<&3)" || exit 2
+    else
+        TEXT_MODEL=""
+    fi
+    printf '\nSelection summary (no changes made yet):\n' >&2
+    printf '  features: %s\n  provider: %s\n  image model: %s\n  video model: %s\n  voice backend: %s\n  text model: %s\n' \
+        "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND" "$TEXT_MODEL" >&2
+    printf 'Proceed with this plan? [y/N]: ' >&2
+    confirm=''
+    IFS= read -r confirm <&3 || confirm=""
+    case "$confirm" in
+        y|Y|yes|YES) ;;
+        *) printf 'Aborted before mutation.\n' >&2
+            rm -rf -- "$DEPLOY_ROOT" 2>/dev/null
+            exit 0 ;;
+    esac
+fi
+
+# Persist the approved selection plan before installation, including dry-runs.
+if [[ -n "$PROFILE" || -n "$FEATURES" ]]; then
+    mkdir -p -- "$DEPLOY_ROOT/state"
+    python3 - "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TEXT_MODEL" "$TTS_BACKEND" > "$DEPLOY_ROOT/state/deployment-state.json" <<'PY'
+import json, sys
+f, provider, image, video, text_model, voice = sys.argv[1:]
+print(json.dumps({"selected_features": [x for x in f.replace(",", " ").split() if x], "provider": provider, "image_model": image, "video_model": video, "tts_backend": voice, "text_model": text_model}))
+PY
+fi
+
 # ---------------------------------------------------------------------------
 # Cleanup and PID tracking
 # ---------------------------------------------------------------------------
 
-trap 'do_cleanup; status=$?; trap - ERR; on_error "$status" "$LINENO" "cleanup-exit"' EXIT
+trap 'status=$?; trap - EXIT ERR; do_cleanup; if (( status != 0 )); then on_error "$status" "$LINENO" "cleanup-exit"; fi; exit "$status"' EXIT
 
 # ---------------------------------------------------------------------------
 # Phase 1
@@ -138,7 +196,7 @@ printf '=== Phase 2: Deployment Layout ===\n'
 if [[ "$DRY_RUN" == true ]]; then
     printf 'dry-run: skipping layout creation\n'
 else
-    mkdir -p -- "$DEPLOY_ROOT"/{bin,config,logs,models,run,state,venv,artifacts}
+    mkdir -p -- "$DEPLOY_ROOT"/{bin,config,logs,models,run,state,artifacts}
     mkdir -p -- "$(dirname -- "$LOG_FILE")"
     printf 'layout: created in %s\n' "$DEPLOY_ROOT"
 fi
@@ -170,7 +228,7 @@ if [[ "$DRY_RUN" == true ]]; then
         printf 'dry-run: python_runtime_dry_run=cuda=unavailable\n'
     fi
 else
-    if [[ ! -d "$VENV_PATH" ]]; then
+    if [[ ! -d "$VENV_PATH" ]] || [[ ! -f "$VENV_PATH/bin/pip" ]]; then
         printf 'python: creating virtualenv at %s\n' "$VENV_PATH"
         python3 -m venv "$VENV_PATH" || {
             on_error 1 "$LINENO" "virtualenv creation failed"
@@ -178,19 +236,58 @@ else
         }
     fi
 
+    # PEP 668: Remove EXTERNALLY-MANAGED marker so pip can install packages
+    # in this owned venv. Uses find to locate the marker (works across
+    # Python 3.11/3.12/3.13 regardless of the site-packages dir name).
+    _externally_managed="$(find "$VENV_PATH/lib" -maxdepth 2 -name EXTERNALLY-MANAGED -type f 2>/dev/null | head -n 1)"
+    if [[ -n "$_externally_managed" && -f "$_externally_managed" ]]; then
+        rm -f -- "$_externally_managed"
+        printf 'python: removed EXTERNALLY-MANAGED marker (PEP 668)\n'
+    fi
+
     # Install dependencies
     printf 'python: installing dependencies\n'
-    "$VENV_PATH/bin/pip" install --upgrade pip wheel setuptools 2>&1 | tail -3 || {
+    "$VENV_PATH/bin/pip" install --upgrade pip wheel setuptools || {
         on_error 1 "$LINENO" "pip upgrade failed"
         exit 1
     }
 
-    # Install PyTorch for ARM64 (CPU-only, no CUDA toolkit required)
-    printf 'python: installing PyTorch (CPU)\n'
-    "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 2>&1 | tail -5 || {
-        on_error 1 "$LINENO" "PyTorch install failed"
-        exit 1
-    }
+    # Install PyTorch — CUDA if GPU available, CPU otherwise
+    _cuda_available=false
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        _cuda_available=true
+    fi
+
+    if [[ "$_cuda_available" == true ]]; then
+        printf 'python: installing PyTorch (nightly cu128, sm_121 support for GB10)\\n'
+        "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/nightly/cu128 || {
+            on_error 1 "$LINENO" "PyTorch nightly cu128 install failed (try --profile minimal without photo feature, or use Docker)"
+            exit 1
+        }
+    else
+        printf 'python: installing PyTorch (CPU-only)\\n'
+        "$VENV_PATH/bin/pip" install --no-cache-dir torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/cpu || {
+            on_error 1 "$LINENO" "PyTorch CPU install failed"
+            exit 1
+        }
+    fi
+
+    # -----------------------------------------------------------------------
+    # install_vllm — best-effort vLLM installation for text-generation feature
+    # -----------------------------------------------------------------------
+    if feature_selected "$FEATURES" "text-generation"; then
+        if [[ -x "$VENV_PATH/bin/python" ]]; then
+            if ! install_vllm "$VENV_PATH/bin/python"; then
+                printf 'vllm: installation deferred (best-effort; photo/ComfyUI unaffected)\n' >&2
+            fi
+        else
+            printf 'vllm: venv python not found at %s; skipping vLLM install\n' "$VENV_PATH/bin/python" >&2
+        fi
+    else
+        printf 'vllm: text-generation feature not selected; vLLM install skipped\n' >&2
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -225,13 +322,44 @@ if [[ -z "$PROFILE" ]]; then
     fi
 fi
 
-if [[ "$DRY_RUN" == true ]]; then
+# Resolve selections from the profile/catalog while preserving explicit CLI overrides.
+if [[ -n "$PROFILE" ]]; then
+    FEATURES="${FEATURES:-$(select_features "$CONFIG" "$PROFILE")}"
+    PROVIDER="${PROVIDER:-$(select_provider "$CONFIG" photo "$PROFILE")}" || { on_error 1 "$LINENO" "feature selection failed"; exit 1; }
+    [[ -n "$IMAGE_MODEL" ]] || IMAGE_MODEL="$(select_model "$CONFIG" photo "$PROFILE")" || { on_error 1 "$LINENO" "image model selection failed"; exit 1; }
+    [[ -n "$VIDEO_MODEL" ]] || VIDEO_MODEL="$(select_model "$CONFIG" video "$PROFILE")"
+    [[ -n "$TTS_BACKEND" ]] || TTS_BACKEND="$(select_model "$CONFIG" voice "$PROFILE")" || { on_error 1 "$LINENO" "TTS backend selection failed"; exit 1; }
+    TTS_BACKEND="$(validate_voice_backend "$CONFIG" "$TTS_BACKEND")" || { on_error 1 "$LINENO" "unsupported or deferred voice backend"; exit 1; }
+    printf 'selection: features=%s provider=%s image-model=%s video-model=%s tts-backend=%s\n' "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND"
+fi
+
+CAPABILITY_JSON="$(capability_manifest "$CONFIG" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TTS_BACKEND")" || { on_error 1 "$LINENO" "capability state resolution failed"; exit 1; }
+state_write "$STATE_ROOT" "capabilities" "capability state resolved" "" "planned" "$CAPABILITY_JSON" || { on_error 1 "$LINENO" "capability state persistence failed"; exit 1; }
+if [[ "$DRY_RUN" != true ]]; then
+    CAPABILITY_TMP="$DEPLOY_ROOT/state/capability-state.json"
+    mkdir -p "$DEPLOY_ROOT/state"
+    printf '%s\n' "$CAPABILITY_JSON" > "$CAPABILITY_TMP"
+    if ! capability_reject_non_dry_run "$CAPABILITY_TMP"; then
+        state_write "$STATE_ROOT" "models" "capability selection blocked" "" "failed" "$CAPABILITY_JSON"
+        exit 1
+    fi
+    # Show batched deferred/experimental warnings (color-aware, suppressed in non-interactive)
+    deferred_warning_banner "$CAPABILITY_JSON" || true
+fi
+
+SELECTION_JSON="$(printf "%s\n" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TEXT_MODEL" "$TTS_BACKEND" | python3 -c 'import json,re,sys; a=sys.stdin.read().splitlines(); print(json.dumps({"selected_features":[x for x in re.split(r"[\\s,]+",a[0].strip()) if x],"provider":a[1],"image_model":a[2],"video_model":a[3],"tts_backend":a[5],"text_model":a[4]},separators=(",",":")))')"
+
+if [[ "$PROVIDER" == "remote" ]]; then
+    printf 'remote provider: skipping local model acquisition\n'
+    state_write "$STATE_ROOT" "models" "remote provider selected; local acquisition skipped" "" "planned" "$SELECTION_JSON"
+elif [[ "$DRY_RUN" == true ]]; then
     printf 'dry-run: acquiring models (dry run, no downloads)\n'
-    acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" true "$STATE_ROOT" || {
+    acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" true "$STATE_ROOT" "$FEATURES" "$VIDEO_MODEL" || {
         on_error 1 "$LINENO" "dry-run model planning failed"
         exit 1
     }
     printf 'dry-run: model acquisition complete (no filesystem changes)\n'
+    state_write "$STATE_ROOT" "models" "dry-run model planning complete" "" "planned" "$SELECTION_JSON"
     printf 'state=planned phase=models\n' >>"$RUN_LOG"
     exit 0
 fi
@@ -245,10 +373,21 @@ if [[ "$free_kb" =~ ^[0-9]+$ && "$free_kb" -lt "$((required_bytes / 1024 / 1024 
     exit 1
 fi
 
-if ! acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" false "$STATE_ROOT"; then
+if [[ "$PROVIDER" != "remote" ]] && ! acquire_models "$MODEL_ROOT" "$CONFIG" "$IMAGE_MODEL" "$TTS_BACKEND" false "$STATE_ROOT" "$FEATURES" "$VIDEO_MODEL"; then
     on_error 1 "$LINENO" "model acquisition failed"
     exit 1
 fi
+
+
+
+# Provision local video only when the selected feature set includes video.
+if [[ "$PROVIDER" != "remote" ]] && [[ "$FEATURES" =~ (^|[[:space:],])video([[:space:],]|$) ]]; then
+    if ! provision_video "$DEPLOY_ROOT" "$STATE_ROOT" "$PROVIDER" "$VIDEO_MODEL" "$CONFIG" "$DRY_RUN"; then
+        on_error 1 "$LINENO" "video provisioning failed"
+        exit 1
+    fi
+fi
+
 
 # ---------------------------------------------------------------------------
 # Phase 6: TTS installation
@@ -256,11 +395,11 @@ fi
 PHASE="tts"
 printf '=== Phase 6: TTS ===\n'
 
-if [[ "$DRY_RUN" == false ]]; then
-    install_piper_tts "$VENV_PATH/bin/python" || {
-        on_error 1 "$LINENO" "installation failed"
-        exit 1
-    }
+if [[ "$DRY_RUN" == false ]] && feature_selected "$FEATURES" voice; then
+    install_voice_backend "$TTS_BACKEND" "$VENV_PATH/bin/python" || { on_error 1 "$LINENO" "installation failed"; exit 1; }
+elif ! feature_selected "$FEATURES" voice; then
+    printf 'tts: voice feature not selected; local TTS setup skipped
+'
 fi
 
 # ---------------------------------------------------------------------------
@@ -270,10 +409,11 @@ PHASE="startup"
 printf '=== Phase 7: Service Startup ===\n'
 
 if [[ "$DRY_RUN" == false ]]; then
-    # Start ComfyUI first
+    # Start ComfyUI first — disown so bash won't hang on it at exit (do_wait)
     printf 'startup: starting ComfyUI...\n'
-    nohup "$VENV_PATH/bin/python" "$COMFYUI_PATH/comfyui-runner.py" > "$DEPLOY_ROOT/logs/comfyui.log" 2>&1 &
+    nohup "$VENV_PATH/bin/python" "$COMFYUI_PATH/main.py" > "$DEPLOY_ROOT/logs/comfyui.log" 2>&1 &
     COMFYUI_PID=$!
+    disown "$COMFYUI_PID" 2>/dev/null || true
     track_pid "$COMFYUI_PID" "comfyui"
     printf 'startup: ComfyUI started (pid %s)\n' "$COMFYUI_PID"
 
@@ -287,24 +427,28 @@ if [[ "$DRY_RUN" == false ]]; then
     fi
     printf 'startup: ComfyUI is ready\n'
 
-    # Start TTS after ComfyUI is ready
-    printf 'startup: starting TTS...\n'
-    nohup "$VENV_PATH/bin/piper" > "$DEPLOY_ROOT/logs/tts.log" 2>&1 &
-    TTS_PID=$!
-    track_pid "$TTS_PID" "tts"
-    printf 'startup: TTS started (pid %s)\n' "$TTS_PID"
+    # Start TTS after ComfyUI is ready only when voice was selected.
+    if feature_selected "$FEATURES" voice; then
+        printf 'startup: starting TTS...\n'
+        nohup "$VENV_PATH/bin/piper" > "$DEPLOY_ROOT/logs/tts.log" 2>&1 &
+        TTS_PID=$!
+        track_pid "$TTS_PID" "tts"
+        printf 'startup: TTS started (pid %s)\n' "$TTS_PID"
 
-    # Wait for TTS readiness
-    if ! wait_for_tts_ready 30; then
-        printf 'startup: TTS failed readiness, stopping services...\n'
-        kill "$TTS_PID" 2>/dev/null || true
-        rm -f "$DEPLOY_ROOT/run/tts.pid"
-        kill "$COMFYUI_PID" 2>/dev/null || true
-        rm -f "$DEPLOY_ROOT/run/comfyui.pid"
-        state_write "$DEPLOY_ROOT" "startup" "TTS readiness failed" "" "partial"
-        exit 1
+        # Wait for TTS readiness
+        if ! wait_for_tts_ready 30; then
+            printf 'startup: TTS failed readiness, stopping services...\n'
+            kill "$TTS_PID" 2>/dev/null || true
+            rm -f "$DEPLOY_ROOT/run/tts.pid"
+            kill "$COMFYUI_PID" 2>/dev/null || true
+            rm -f "$DEPLOY_ROOT/run/comfyui.pid"
+            state_write "$DEPLOY_ROOT" "startup" "TTS readiness failed" "" "partial"
+            exit 1
+        fi
+        printf 'startup: TTS is ready\n'
+    else
+        printf 'startup: voice feature not selected; TTS startup skipped\n'
     fi
-    printf 'startup: TTS is ready\n'
 
     # Emit running state once all services are healthy
     state_write "$DEPLOY_ROOT" "startup" "all services healthy" "" "running"

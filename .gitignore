@@ -4,5 +4,9 @@
 tya*
 rhub*
 
+# virtual environments
+.venv/
+venv/
+
 # agents
 agents/p_*

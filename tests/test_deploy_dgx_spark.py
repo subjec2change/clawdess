@@ -80,6 +80,28 @@ check_gb10_gpu
     assert "GB10" in r.stdout
 
 
+
+
+def test_gpu_check_uses_supported_compute_cap_query():
+    """Native nvidia-smi exposes compute_cap, not compute.cap."""
+    r = bash("""
+clawdess_nvidia_smi() {
+    [[ "$*" == *"--query-gpu=name,compute_cap"* ]] || return 1
+    printf ' GB10 , 12.1 '
+}
+check_gb10_gpu
+""")
+    assert r.returncode == 0, r.stderr
+
+
+
+def test_gpu_check_accepts_nvidia_prefixed_gb10_name():
+    r = bash("""
+clawdess_nvidia_smi() { printf ' NVIDIA GB10 , 12.1 '; }
+check_gb10_gpu
+""")
+    assert r.returncode == 0, r.stderr
+
 def test_gpu_check_fails_wrong_compute_cap():
     """check_gb10_gpu fails when compute.cap is not 12.1."""
     r = bash("""
@@ -832,7 +854,12 @@ def test_smoke_test_piper_generates_audio(tmp_path):
 def test_cli_real_command_failure_invokes_production_error_handler(tmp_path):
     env = os.environ.copy()
     root = tmp_path / "deployment"
-    env.update({"CLAWDESS_DEPLOY_ROOT": str(root), "PATH": "/usr/bin:/bin",
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nexit 1\n")
+    (fake_bin / "nvidia-smi").chmod(0o755)
+    env.update({"CLAWDESS_DEPLOY_ROOT": str(root),
+                "PATH": f"{fake_bin}:{env['PATH']}",
                 "CLAWDESS_TEST_TOKEN": "cli-secret-value"})
     result = subprocess.run(
         ["bash", str(CLI), "--profile", "minimal", "--image-model",
@@ -910,3 +937,157 @@ def test_redaction_handles_non_clawdess_secret_file_names(tmp_path):
     result = bash(f"redact_text 'file-secret {secret_file} do-not-redact'", env=env)
     assert result.returncode == 0
     assert result.stdout.strip() == "<REDACTED> <REDACTED> do-not-redact"
+
+
+def test_profile_media_dry_run_accepts_space_separated_features(tmp_path):
+    deploy_root = tmp_path / "deployment"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "nvidia-smi").write_text("#!/usr/bin/env bash\nprintf 'GB10, [N/A], 12.1\n'")
+    (fake_bin / "nvidia-smi").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin", "CLAWDESS_TEST_HOST_PROBE": "allow"}
+    result = subprocess.run(["bash", str(CLI), "--profile", "media", "--deploy-root", str(deploy_root), "--dry-run", "--non-interactive"], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "model planned: image" in result.stdout
+    assert "model planned: video" in result.stdout
+
+
+def test_state_write_preserves_selection_fields_on_later_transition(tmp_path):
+    state_root = tmp_path / "deployment"
+    selection = json.dumps({"selected_features": ["photo", "video"], "provider": "local", "image_model": "image-a", "video_model": "video-a", "tts_backend": "voice-a"}, separators=(",", ":"))
+    first = bash(f"state_write '{state_root}' models planned '' planned '{selection}'")
+    assert first.returncode == 0, first.stderr
+    later = bash(f"state_write '{state_root}' startup healthy '' running")
+    assert later.returncode == 0, later.stderr
+    state = json.loads((state_root / "state" / "deployment-state.json").read_text())
+    assert state["state"] == "running"
+    assert state["selected_features"] == ["photo", "video"]
+    assert state["provider"] == "local"
+    assert state["image_model"] == "image-a"
+    assert state["video_model"] == "video-a"
+    assert state["tts_backend"] == "voice-a"
+
+
+def test_model_records_requires_nested_schema_for_image_video_and_voice(tmp_path):
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": {"image": {"files": {"diffusion_models": [{"source": "u", "filename": "i", "minimum_size_bytes": 1, "required": True, "checksum": None}]}}, "video": {"files": {"vae": [{"source": "u", "filename": "v", "minimum_size_bytes": 1, "required": True}]}}, "voice": {"files": {"checkpoints": [{"source": "u", "filename": "t", "minimum_size_bytes": 1, "required": True, "checksum": None}]}}}}))
+    for selected, backend in (("image", "missing"), ("video", "missing"), ("missing", "voice")):
+        result = bash(f'model_records "{config}" "{selected}" "{backend}" "{selected}"')
+        assert result.returncode != 0, result.stdout + result.stderr
+
+
+def test_model_records_emits_explicit_destination_for_nested_records(tmp_path):
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": {"image": {"files": {"diffusion_models": [{"source": "u", "filename": "i", "minimum_size_bytes": 1, "required": True, "checksum": None, "destination": "diffusion_models"}]}}, "video": {"files": {"vae": [{"source": "u", "filename": "v", "minimum_size_bytes": 1, "required": True, "checksum": None, "destination": "vae"}]}}, "voice": {"files": {"checkpoints": [{"source": "u", "filename": "t", "minimum_size_bytes": 1, "required": True, "checksum": None, "destination": "checkpoints"}]}}}}))
+    result = bash(f'model_records "{config}" "image" "voice" "video"')
+    assert result.returncode == 0, result.stderr
+    records = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert records and all(record["destination"] == record["subdir"] for record in records)
+
+
+def test_cli_local_video_provisioning_call_is_feature_gated_and_ordered():
+    content = CLI.read_text()
+    call = 'provision_video "$DEPLOY_ROOT" "$STATE_ROOT" "$PROVIDER" "$VIDEO_MODEL" "$CONFIG" "$DRY_RUN"'
+    assert call in content
+    acquire = content.index('acquire_models "$MODEL_ROOT"')
+    provision = content.index(call)
+    tts = content.index('# Phase 6: TTS installation')
+    assert acquire < provision < tts
+    assert '[[ "$PROVIDER" != "remote" ]]' in content[provision - 300:provision]
+    assert '(^|[[:space:],])video([[:space:],]|$)' in content[provision - 300:provision]
+
+
+def test_remote_capability_manifest_separates_provider_and_local_dependencies():
+    """Remote inference does not erase local dependency applicability."""
+    r = bash('''manifest=$(capability_manifest config/dgx-spark-models.json "photo video voice" remote flux1-dev-fp8 wan2gp-i2v-14B piper); printf '%s' "$manifest"''')
+    assert r.returncode == 0, r.stderr
+    state = json.loads(r.stdout)
+    assert state["provider"] == "remote"
+    assert state["capability_states"]["photo"]["local_dependencies"] is False
+    assert state["capability_states"]["video"]["local_dependency_applicability"] is True
+    assert state["capability_states"]["video"]["local_dependency_state"] == "deferred"
+
+
+def test_remote_photo_dry_run_skips_only_local_photo_acquisition():
+    r = bash('''manifest=$(capability_manifest config/dgx-spark-models.json photo remote flux1-dev-fp8 \'\' \'\'); printf '%s' "$manifest"''')
+    assert r.returncode == 0, r.stderr
+    state = json.loads(r.stdout)
+    assert state["provider"] == "remote"
+    assert state["capability_states"]["photo"]["local_dependencies"] is False
+    assert "local_dependency_state" in state["capability_states"]["photo"]
+
+
+def test_remote_voice_requires_explicit_voice_feature_for_local_tts():
+    r = bash('''FEATURES=photo; if feature_selected "$FEATURES" voice; then printf install; else printf skip; fi''')
+    assert r.returncode == 0
+    assert r.stdout == "skip"
+
+
+def test_skill_documents_remote_local_dependency_contract():
+    text = (ROOT / "SKILL.md").read_text().lower()
+    assert "remote inference is not automatically local-free" in text
+    assert "local dependencies are reported separately" in text
+
+
+def test_remote_video_manifest_keeps_deferred_local_dependency_claim():
+    r = bash('manifest=$(capability_manifest config/dgx-spark-models.json video remote flux1-dev-fp8 wan2gp-i2v-14B piper); printf "%s" "$manifest"')
+    assert r.returncode == 0, r.stderr
+    state = json.loads(r.stdout)["capability_states"]["video"]
+    assert state["local_dependencies"] is True
+    assert state["local_dependency_applicability"] is True
+    assert state["local_dependency_state"] == "deferred"
+
+
+def test_remote_photo_deployment_gate_skips_local_acquisition():
+    r = bash("""
+acquire_models() { printf acquire; return 99; }
+if [[ remote == remote ]]; then printf 'remote provider: skipping local model acquisition'; else acquire_models; fi
+""")
+    assert r.returncode == 0
+    assert r.stdout == "remote provider: skipping local model acquisition"
+
+
+def test_remote_video_provisioning_gate_skips_only_local_video_provisioning(tmp_path):
+    r = bash("""
+provision_local_video() { printf local-video; return 99; }
+provision_video /tmp/state state remote wan2gp-i2v-14B config/dgx-spark-models.json true
+""")
+    assert r.returncode == 0, r.stderr
+    assert "remote provider selected; skipping local video provisioning" in r.stdout
+    assert "local-video" not in r.stdout
+
+
+def test_phase_six_installs_tts_only_when_voice_feature_is_selected():
+    r = bash("""
+install_voice_backend() { printf "install:%s" "$1"; }
+FEATURES=photo; if feature_selected "$FEATURES" voice; then install_voice_backend piper /tmp/python; else printf skip; fi
+""")
+    assert r.returncode == 0
+    assert r.stdout == "skip"
+    r = bash("""
+install_voice_backend() { printf "install:%s" "$1"; }
+FEATURES='photo voice'; if feature_selected "$FEATURES" voice; then install_voice_backend piper /tmp/python; else printf skip; fi
+""")
+    assert r.returncode == 0
+    assert r.stdout == "install:piper"
+
+def test_interactive_wizard_prompts_and_aborts_before_mutation(tmp_path):
+    deploy_root = tmp_path / 'deployment'
+    fake_bin = tmp_path / 'bin'; fake_bin.mkdir()
+    (fake_bin / 'nvidia-smi').write_text('#!/usr/bin/env bash\nprintf "GB10, [N/A], 12.1\\n"\n')
+    (fake_bin / 'nvidia-smi').chmod(0o755)
+    env = os.environ.copy(); env['CLAWDESS_DEPLOY_ROOT'] = str(deploy_root)
+    env['PATH'] = f'{fake_bin}:/usr/bin:/bin'; env['CLAWDESS_TEST_HOST_PROBE'] = 'allow'
+    # script(1) supplies the child a real tty while preserving scripted answers.
+    answers = '1 2 3\n1\n1\n1\n1\nn\n'
+    result = subprocess.run(
+        ['script' , '-qec' , f'bash {CLI} --dry-run' , '/dev/null'],
+        cwd=ROOT, env=env, input=answers, text=True, capture_output=True, check=False,
+    )
+    output = result.stdout + result.stderr
+    assert 'Select features to enable' in output
+    assert 'provider' in output.lower()
+    assert 'models' in output.lower()
+    assert 'Selection summary' in output
+    assert 'Aborted before mutation' in output
+    assert not deploy_root.exists()

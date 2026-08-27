@@ -3,7 +3,7 @@
 import os
 import sys
 
-from common import download_file, discover_providers, MEDIA_CACHE
+from common import download_file, discover_providers, MEDIA_CACHE, validate_image_reference
 
 PROVIDERS = discover_providers("video")
 
@@ -14,6 +14,11 @@ def run_video(args):
     if not args.image:
         sys.exit("Error: --image is required.")
 
+
+    try:
+        args.image = validate_image_reference(args.image)
+    except ValueError as exc:
+        sys.exit(f"Error: invalid reference image: {exc}")
     api_key = args.api or os.environ.get("CLAWDESS_VIDEO_API", "")
     if not api_key:
         sys.exit("Error: --api or CLAWDESS_VIDEO_API required.")
