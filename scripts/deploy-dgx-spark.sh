@@ -343,6 +343,8 @@ if [[ "$DRY_RUN" != true ]]; then
         state_write "$STATE_ROOT" "models" "capability selection blocked" "" "failed" "$CAPABILITY_JSON"
         exit 1
     fi
+    # Show batched deferred/experimental warnings (color-aware, suppressed in non-interactive)
+    deferred_warning_banner "$CAPABILITY_JSON" || true
 fi
 
 SELECTION_JSON="$(printf "%s\n" "$FEATURES" "$PROVIDER" "$IMAGE_MODEL" "$VIDEO_MODEL" "$TEXT_MODEL" "$TTS_BACKEND" | python3 -c 'import json,re,sys; a=sys.stdin.read().splitlines(); print(json.dumps({"selected_features":[x for x in re.split(r"[\\s,]+",a[0].strip()) if x],"provider":a[1],"image_model":a[2],"video_model":a[3],"tts_backend":a[5],"text_model":a[4]},separators=(",",":")))')"

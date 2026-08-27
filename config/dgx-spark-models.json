@@ -295,7 +295,7 @@
     },
     "xtts-v2": {
       "status": "deferred",
-      "description": "XTTS v2 configuration seam only; runtime installation deferred",
+      "description": "XTTS v2 requires manual installation (Coqui TTS). Install: pip install TTS (or pytorch-lightning+soundfile). Download model from HuggingFace: Coqui-ai/TTS/models/tts/models/multilingual/vocos-mel-24khz/ (vocoder) and Coqui-ai/XTTS-v2/models/XTTS-v2.pt (model). Point speaker_wav to a recording of the target voice (~10-30s clean audio). Requires ~8GB RAM at inference time.",
       "speaker_wav": "<path-to-speaker-wav>"
     }
   },

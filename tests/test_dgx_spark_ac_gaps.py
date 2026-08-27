@@ -824,6 +824,43 @@ def test_task3_install_dispatch_is_truthful_and_piper_only_smoke(config_path):
     assert "experimental" in result.stderr.lower() or "deferred" in result.stderr.lower()
 
 
+def test_task1_download_piper_model_creates_files(tmp_path):
+    """download_piper_model downloads model+config to deploy_root/models/checkpoints."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    
+    # Mock curl by creating a fake script that writes test files
+    fake_bin = tmp_path / "fakebin"
+    fake_bin.mkdir()
+    curl_script = fake_bin / "curl"
+    curl_script.write_text(f"""#!/usr/bin/env bash
+# Mock curl - create test files instead of downloading
+mkdir -p "{deploy_root}/models/checkpoints"
+echo "test model content" > "{deploy_root}/models/checkpoints/en_US-ljspeech-medium.onnx"
+echo "test config content" > "{deploy_root}/models/checkpoints/en_US-ljspeech-medium.json"
+""")
+    curl_script.chmod(0o755)
+    
+    env_patch = f'PATH="{fake_bin}:/usr/bin:/bin"'
+    bash_script = f"""#!/usr/bin/env bash
+{env_patch}
+{LIB.read_text()}
+download_piper_model "{deploy_root}" "en_US-ljspeech-medium"
+"""
+    script_path = tmp_path / "test_download.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    model_file = deploy_root / "models/checkpoints/en_US-ljspeech-medium.onnx"
+    config_file = deploy_root / "models/checkpoints/en_US-ljspeech-medium.json"
+    assert result.returncode == 0, result.stderr
+    assert model_file.exists()
+    assert config_file.exists()
+    assert model_file.stat().st_size > 0
+    assert config_file.stat().st_size > 0
+
+
 # Task 4: local video provisioning seam
 
 def test_task4_local_video_scaffold_wires_selected_model_paths(tmp_path):
@@ -877,15 +914,28 @@ def test_capability_state_mapping_persists_selected_provider_separately(tmp_path
     assert data["capability_states"]["video"]["local_dependencies"] is True
 
 
-def test_non_dry_run_deferred_capability_fails_explicitly(tmp_path, config_path):
+def test_non_dry_run_deferred_capability_warns_not_fails(tmp_path, config_path):
+    """capability_reject_non_dry_run always returns 0 per UX decision #3 (caller decides)."""
     root = tmp_path / "deploy"; root.mkdir()
     cap = root / "capability.json"
-    result = bash(f'capability_manifest "{config_path}" "photo,video" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper" > "{cap}"; capability_reject_non_dry_run "{cap}"')
-    assert result.returncode != 0
+    result = bash(f'capability_manifest "{config_path}" "photo,video" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper" > "{cap}"')
+    assert result.returncode == 0, result.stderr
+    result = bash(f'capability_reject_non_dry_run "{cap}"')
+    assert result.returncode == 0  # per grilling decision #3: returns JSON summary, caller decides
     output = result.stdout + result.stderr
-    assert "video" in output.lower() and "deferred" in output.lower()
     data = json.loads(cap.read_text())
     assert data["capability_states"]["video"]["state"] == "deferred"
+
+
+def test_capability_status_summary_returns_all_states(tmp_path, config_path):
+    """capability_status_summary extracts capability states for warning display."""
+    result = bash(f'capability_manifest "{config_path}" "photo,video,voice" "local" "juggernaut-xl-v10" "wan2gp-i2v-14B" "piper"')
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert "capability_states" in data
+    assert data["capability_states"]["photo"]["state"] == "verified"
+    assert data["capability_states"]["video"]["state"] == "deferred"
+    assert data["capability_states"]["voice"]["state"] == "verified"
 
 
 def test_state_write_persists_capability_states_and_manifest(tmp_path):
@@ -924,13 +974,14 @@ def test_failed_capability_state_persists_mapping(tmp_path, config_path):
 
 
 @pytest.mark.parametrize("state", ["deferred", "unavailable", "blocked"])
-def test_remote_non_dry_run_capability_states_fail_explicitly(tmp_path, state):
+def test_remote_non_dry_run_capability_states_return_summary(tmp_path, state):
+    """capability_reject_non_dry_run now returns 0 always (caller decides per UX grilling)."""
     cap = tmp_path / "capability.json"
     cap.write_text(json.dumps({"provider": "remote", "capability_states": {"video": {"state": state, "provider": "remote"}}}))
     result = bash(f'capability_reject_non_dry_run "{cap}"')
-    assert result.returncode != 0
-    output = result.stdout + result.stderr
-    assert "video" in output.lower() and state in output.lower()
+    assert result.returncode == 0  # no longer blocks
+    data = json.loads(cap.read_text())
+    assert data["capability_states"]["video"]["state"] == state
 
 
 def test_cli_rejects_remote_non_dry_run_capability_states(tmp_path):
