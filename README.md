@@ -8,8 +8,14 @@ clawdess is more than just a girlfriend. It's the perfect digital companion. Exp
 ## Features
 
 - **Photo** — AI-edited selfies from a reference image
+  - **Cloud**: FAL (Seedream 4.5), HUOSHANYUN (Doubao Seedream 4.5), XAI (Grok Imagine), OpenAI (GPT Image Edit)
+  - **Local**: Self-hosted via DGX Spark with Juggernaut-X / Flux models
 - **Video** — Image-to-video generation
+  - **Cloud**: FAL (Wan 2.1), XAI (Flux Video)
+  - **Local**: Wan2GP via ComfyUI (deferred — model acquisition planned)
 - **Voice** — Text-to-speech voice messages
+  - **Cloud**: Aliyun, ElevenLabs, ZAI
+  - **Local**: Piper (verified), Kokoro (experimental), XTTS-v2 (deferred)
 
 All media can be delivered to WhatsApp, Telegram, Discord, Slack, Signal, and MS Teams via [OpenClaw](https://github.com/openclaw/openclaw).
 
@@ -61,18 +67,28 @@ python3 scripts/clawdess.py voice \
 
 The `--channel` and `--target` flags are optional — omit them to generate media without sending.
 
+## Quick Start
+
+| Path | Command |
+|------|---------|
+| **Cloud** | `python3 scripts/clawdess.py photo --provider FAL --prompt "..." --image "url"` |
+| **Local** | `bash scripts/deploy-dgx-spark.sh --profile minimal --image-model juggernaut-xl-v10 --tts-backend piper --non-interactive --yes` |
+
+The cloud path needs API keys and works immediately. The local path requires an NVIDIA GB10 DGX Spark machine and runs the one-command deployment wizard to set up ComfyUI, TTS, and all dependencies on-device.
+
 ## Providers
 
-| Type | Provider | Model | Default |
-|------|----------|-------|---------|
-| Photo | FAL | Bytedance Seedream 4.5 | Yes |
-| Photo | HUOSHANYUN | Doubao Seedream 4.5 | |
-| Photo | XAI | Grok Imagine Image | |
-| Video | FAL | Wan v2.2 | Yes |
-| Video | XAI | Grok Imagine Video | |
-| Voice | ALIYUN | Qwen3-TTS-Flash | Yes |
-| Voice | ELEVENLABS | Eleven Multilingual v2 | |
-| Voice | ZAI | GLM-TTS | |
+| Type  | Provider   | Model                  | Default |
+|-------|------------|------------------------|---------|
+| Photo | FAL        | Bytedance Seedream 4.5 | Yes     |
+| Photo | HUOSHANYUN | Doubao Seedream 4.5    |         |
+| Photo | XAI        | Grok Imagine Image     |         |
+| Photo | OpenAI     | GPT Image Edit         |         |
+| Video | FAL        | Wan v2.2               | Yes     |
+| Video | XAI        | Grok Imagine Video     |         |
+| Voice | ALIYUN     | Qwen3-TTS-Flash        | Yes     |
+| Voice | ELEVENLABS | Eleven Multilingual v2 |         |
+| Voice | ZAI        | GLM-TTS                |         |
 
 List installed providers:
 
@@ -101,6 +117,7 @@ scripts/
   photo/               # Photo providers
     fal.py
     huoshanyun.py
+    openai.py
     xai.py
   video/               # Video providers
     fal.py
@@ -175,9 +192,10 @@ bash scripts/deploy-dgx-spark.sh --help
 | Video / Wan2GP local | `deferred` | Record/preflight the selected catalog model and dependency paths; smoke test returns `1` when Wan2GP model absent, `2` on service failure, `0` on artifact | No native video service, health check, download, or generated video is claimed by this wizard today |
 | XTTS-v2 | `deferred` | Record the backend seam and required speaker-WAV placeholder; catalog includes manual install instructions | No XTTS runtime or artifact is provided |
 | Local LLM / vLLM | `deferred` | Keep it in capability planning where a profile mentions it | The wizard is not a local LLM installer |
+| NSFW Content | `verified` | Local DGX Spark deployment enables unfiltered generation — no cloud provider content filters apply | Only available when deploying locally; remote/cloud providers enforce content moderation |
 | Remote provider | `planning/delegation` | Record provider selection and skip local acquisition where supported | Remote selection does not prove a remote call, local video runtime, or local voice dependencies |
 
-Profiles are bundles, not proof of capability: `minimal` targets photo + Piper; `media` and `assistant` include experimental/deferred planning; `all` includes all cataloged selections and is not recommended for unattended deployment. The machine-readable state/manifest records states such as `verified`, `experimental`, `deferred`, `unavailable`, and `blocked` separately from provider selection.
+Profiles are bundles, not proof of capability: `minimal` targets photo + Piper; `media` and `assistant` include experimental/deferred planning; `llm` adds vLLM for local text generation (best-effort); `all` includes all cataloged selections and is not recommended for unattended deployment. The machine-readable state/manifest records states such as `verified`, `experimental`, `deferred`, `unavailable`, and `blocked` separately from provider selection.
 
 ### Logs, state, and lifecycle commands
 
