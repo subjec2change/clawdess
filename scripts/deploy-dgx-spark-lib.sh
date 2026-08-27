@@ -1559,6 +1559,44 @@ install_xtts_tts() {
     return 1
 }
 
+smoke_test_kokoro() {
+    local venv_python="${1:?venv python required}"
+    local deploy_root="${2:?deploy root required}"
+
+    # Check if kokoro-onnx is installed
+    if ! "$venv_python" -m pip show kokoro-onnx >/dev/null 2>&1; then
+        printf 'smoke: kokoro deferred — package not installed\n' >&2
+        return 1
+    fi
+
+    # Check if model files exist
+    local kokoro_model="$deploy_root/models/checkpoints/kokoro-v1.0.onnx"
+    local voices_bin="$deploy_root/models/checkpoints/voices-v1.0.bin"
+
+    if [[ ! -f "$kokoro_model" ]] || [[ ! -f "$voices_bin" ]]; then
+        printf 'smoke: kokoro deferred — model files missing (kokoro-v1.0.onnx, voices-v1.0.bin)\n' >&2
+        printf 'smoke: download manually or await first-use installation\n' >&2
+        return 1
+    fi
+
+    # Try a simple synthesis test if kokoro executable exists
+    if command -v kokoro >/dev/null 2>&1; then
+        local output_audio="$deploy_root/artifacts/smoke-kokoro-test.wav"
+        mkdir -p "$deploy_root/artifacts"
+
+        if kokoro --model "$kokoro_model" --voices "$voices_bin" -o "$output_audio" <<< "Test from clawdess on DGX Spark." 2>/dev/null; then
+            if [[ -f "$output_audio" ]] && [[ -s "$output_audio" ]]; then
+                printf 'smoke: kokoro audio generated: %s\n' "$output_audio" >&2
+                return 0
+            fi
+        fi
+    fi
+
+    printf 'smoke: kokoro package installed, model present, but no executable available\n' >&2
+    printf 'smoke: kokoro requires manual setup for full smoke test\n' >&2
+    return 2
+}
+
 download_piper_model() {
     local deploy_root="${1:?deploy_root required}"
     local model_name="${2:-en_US-ljspeech-medium}"

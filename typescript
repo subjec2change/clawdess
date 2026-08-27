@@ -1,0 +1,10 @@
+Script started on 2026-08-27 10:54:37-05:00 [COMMAND="source /home/thx1138/annafoid/clawdess-recovered/scripts/deploy-dgx-spark-lib.sh && select_model "/tmp/pytest-of-thx1138/pytest-79/test_select_model_interactive0/dgx-spark-models.json" photo" <not executed on terminal>]
+2
+
+Photo models:
+1) flux1-dev-fp8 - flux1-dev-fp8
+2) juggernaut-xl-v10 - juggernaut-xl-v10
+3) stability-ai-sdxl-turbo - stability-ai-sdxl-turbo
+Select: juggernaut-xl-v10
+
+Script done on 2026-08-27 10:54:37-05:00 [COMMAND_EXIT_CODE="0"]
