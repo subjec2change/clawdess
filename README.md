@@ -171,9 +171,9 @@ bash scripts/deploy-dgx-spark.sh --help
 |---|---|---|---|
 | Photo / ComfyUI, local | `verified` for the minimal path | Acquire the catalog image model, start ComfyUI, and run the photo smoke test when host prerequisites pass | A successful deployment/smoke test is required; selection or dry-run is not runtime evidence |
 | Piper voice (`piper`/`piper-voice`) | `verified` | Acquire the catalog voice files, install Piper, and run the voice smoke test | This proves the configured Piper path only, not voice quality parity or other TTS backends |
-| Video / Wan2GP local | `deferred` | Record/preflight the selected catalog model and dependency paths; dry-run may show the plan | No native video service, health check, download, or generated video is claimed by this wizard today |
-| Kokoro | `experimental` | Record the catalog/backend seam for planning; not a verified installer capability | No successful Kokoro installation or audio artifact should be inferred |
-| XTTS-v2 | `deferred` | Record the backend seam and required speaker-WAV placeholder | No XTTS runtime or artifact is provided |
+| Kokoro | `experimental` | Install the pip package, provide catalog seam for planning; smoke test returns `deferred` when model files are absent, `partial` when models present but no executable available | No successful Kokoro audio artifact from a non-dry-run install today |
+| Video / Wan2GP local | `deferred` | Record/preflight the selected catalog model and dependency paths; smoke test returns `1` when Wan2GP model absent, `2` on service failure, `0` on artifact | No native video service, health check, download, or generated video is claimed by this wizard today |
+| XTTS-v2 | `deferred` | Record the backend seam and required speaker-WAV placeholder; catalog includes manual install instructions | No XTTS runtime or artifact is provided |
 | Local LLM / vLLM | `deferred` | Keep it in capability planning where a profile mentions it | The wizard is not a local LLM installer |
 | Remote provider | `planning/delegation` | Record provider selection and skip local acquisition where supported | Remote selection does not prove a remote call, local video runtime, or local voice dependencies |
 

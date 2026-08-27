@@ -1083,6 +1083,128 @@ def test_video_preflight_rejects_untruthful_state_evidence(tmp_path, bad_state):
     assert lines["VIDEO_PREFLIGHT_LEVEL"] == "preflight"
 
 
+def test_smoke_test_kokoro_deferred_when_models_missing(tmp_path):
+    """smoke_test_kokoro returns 1 (deferred) when model files are absent."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    lib_content = LIB.read_text()
+    bash_script = f"""#!/usr/bin/env bash
+{lib_content}
+smoke_test_kokoro "{fake_python}" "{deploy_root}"
+"""
+    script_path = tmp_path / "kokoro_smoke.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    assert result.returncode == 1, result.stderr
+    assert "deferred" in result.stderr.lower() or "missing" in result.stderr.lower()
+
+
+def test_smoke_test_kokoro_returns_deferred_when_package_missing(tmp_path):
+    """smoke_test_kokoro returns 1 (deferred) when package is not installed (even if models exist)."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    checkpoints = deploy_root / "models/checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / "kokoro-v1.0.onnx").write_text("dummy model")
+    (checkpoints / "voices-v1.0.bin").write_text("dummy voices")
+    lib_content = LIB.read_text()
+    bash_script = f"""#!/usr/bin/env bash
+{lib_content}
+smoke_test_kokoro "{fake_python}" "{deploy_root}"
+"""
+    script_path = tmp_path / "kokoro_smoke2.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    # Returns 1 because package is not installed (pip show fails)
+    assert result.returncode == 1, result.stderr
+    assert "package not installed" in result.stderr.lower()
+
+
+def test_smoke_test_video_deferred_when_models_missing(tmp_path):
+    """smoke_test_video returns 1 (deferred) when Wan2GP model is absent."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    comfyui_path = deploy_root / "comfyui"
+    comfyui_path.write_text("#!/bin/bash\nsleep 1\n")
+    comfyui_path.chmod(0o755)
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    # No Wan2GP models under models/
+    lib_content = LIB.read_text()
+    bash_script = f"""#!/usr/bin/env bash
+{lib_content}
+smoke_test_video "{comfyui_path}" "{fake_python}" "{deploy_root}" ""
+"""
+    script_path = tmp_path / "video_smoke.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1, result.stderr
+    assert "deferred" in result.stderr.lower() or "not found" in result.stderr.lower()
+
+
+def test_smoke_test_video_returns_failure_on_comfyui_not_ready(tmp_path):
+    """smoke_test_video returns 2 when ComfyUI doesn't become ready."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    comfyui_path = deploy_root / "comfyui"
+    comfyui_path.write_text("#!/bin/bash\nsleep 60\n")
+    comfyui_path.chmod(0o755)
+    fake_python = deploy_root / "python"
+    fake_python.write_text("#!/bin/bash\npython3 \"$@\"\n")
+    fake_python.chmod(0o755)
+    wan_model = deploy_root / "models/diffusion_models/wan2.1_i2v_480p_14b_fp16.safetensors"
+    wan_model.parent.mkdir(parents=True)
+    wan_model.write_bytes(b"dummy model data" * 1000000)
+    lib_content = LIB.read_text()
+    video_config = str(tmp_path / "video-config.json")
+    with open(video_config, "w") as f:
+        json.dump({"model": "wan2.1"}, f)
+    bash_script = (
+        '#!/usr/bin/env bash\n'
+        + lib_content + '\n'
+        + 'smoke_test_video "' + str(comfyui_path) + '" "' + str(fake_python) + '" "' + str(deploy_root) + '" "' + video_config + '"\n'
+    )
+    script_path = tmp_path / "video_smoke2.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 2, result.stderr
+
+
+def test_video_state_manifest_includes_capability_status(tmp_path):
+    """deployment manifest records capability state."""
+    deploy_root = tmp_path / "deploy"
+    deploy_root.mkdir()
+    state_root = deploy_root / "state"
+    state_root.mkdir()
+    lib_content = LIB.read_text()
+    bash_script = (
+        '#!/usr/bin/env bash\n'
+        + lib_content + '\n'
+        + 'state_success "' + str(deploy_root) + '"\n'
+    )
+    script_path = tmp_path / "manifest.sh"
+    script_path.write_text(bash_script)
+    script_path.chmod(0o755)
+    result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    manifest_path = deploy_root / "deployment-manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest.get("state") == "completed"
+    assert manifest.get("phase") == "completed"
+
+
 def test_generated_lifecycle_scripts_have_bash_syntax(tmp_path):
     deploy_root = tmp_path / "deploy"; state_root = tmp_path / "state"
     deploy_root.mkdir(); state_root.mkdir()

@@ -222,7 +222,28 @@ $DEPLOY_ROOT/bin/status
 ```
 
 
-## Truthful native video preflight
+## TTS Capability Structure (three-tier)
+
+The wizard supports three TTS backends with distinct capability states:
+
+| Backend | State | Smoke Test Behavior |
+|---------|-------|---------------------|
+| **Piper** | `verified` | Installs via pip, downloads voice model, runs `smoke_test_piper()` — generates audio on success |
+| **Kokoro** | `experimental` | Installs pip package, returns `1` (deferred) if model files absent, `2` (partial) if models present but no executable available |
+| **XTTS-v2** | `deferred` | Catalog entry only; manual install required (Coqui TTS + speaker_wav); installer returns `1` with deferred message |
+
+Install dispatch (`install_voice_backend`) is truthful: it never silently succeeds for a backend that isn't ready. The `voice_backend_status()` function returns structured JSON for each backend with its state and metadata.
+
+Configuration lives in `config/dgx-spark-models.json` under `voice_backends`. Piper and Kokoro have pre-defined voice variants; XTTS-v2 requires a `speaker_wav` path pointing to a recording of the target voice.
+
+## Video Capability Status
+
+Video generation is `deferred` in this deployment wizard. The smoke test (`smoke_test_video`) checks for Wan2GP model files and returns:
+- `1` — deferred (Wan2GP model absent under `$DEPLOY_ROOT/models`)
+- `2` — failure (ComfyUI not ready, workflow submission failed, or no artifact produced)
+- `0` — success (real `.webm`/`.mp4` artifact verified)
+
+Video capability is only considered `verified` when a real artifact is produced. Dry-run or planned state never counts as evidence.
 
 Run `scripts/check-dgx-video-runtime.sh [DEPLOY_ROOT]` before claiming native GB10 video support. It emits stable `VIDEO_*=` evidence lines and exits nonzero when required host, CUDA, Docker/socket, storage, memory, model, dependency, or state checks fail. Evidence levels are strictly ordered: `preflight` means prerequisites only; `health` additionally requires a real service health response; `artifact` additionally requires recorded state and a non-empty video artifact. Dry-run and planned state never count as health or artifact evidence. The check never downloads credentials or fabricates runtime evidence.
 
